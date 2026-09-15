@@ -7,7 +7,7 @@
     "generate-proto": {
       "cache": true,
       "executor": "nx:run-commands",
-      "outputs": ["{workspaceRoot}/proto/gen/ts", "{workspaceRoot}/proto-deps"],
+      "outputs": ["{workspaceRoot}/protogen/ts", "{workspaceRoot}/proto-deps"],
       "options": {
         "command": "pnpm proto:generate"
       }
