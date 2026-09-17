@@ -75,12 +75,13 @@ for the session user in descending expiration order. The create endpoint accepts
 `{ "ticketId": "<uuid>" }`, creates a `Created`
 order for the session user, and sets `expiresAt` to 15 minutes after creation.
 It returns `404` when the ticket has not yet reached the Orders projection; it
-does not read `tickets-db` or synchronously call Tickets. An active `Created`
-or `AwaitingPayment` order reserves the ticket until expiry: a same-user retry
-returns the existing order with `200`, while another user receives
-`409 ALREADY_EXISTS`. `Canceled` releases the Orders reservation immediately;
-Tickets removes its ticket edit lock asynchronously once it consumes the
-cancellation event. `Complete` keeps the ticket unavailable permanently.
+does not read `tickets-db` or synchronously call Tickets. A `Created` order
+reserves the ticket until expiry, while an `AwaitingPayment` order reserves it
+regardless of expiry: a same-user retry returns the existing order with `200`,
+while another user receives `409 ALREADY_EXISTS`. `Canceled` releases the
+Orders reservation immediately; Tickets removes its ticket edit lock
+asynchronously once it consumes the cancellation event. `Complete` keeps the
+ticket unavailable permanently.
 
 ### Expiration
 
@@ -127,12 +128,13 @@ through the public API are also intentionally deferred, low-priority work.
 1. A signed-in client calls `DELETE /api/orders/:id`.
 2. The gateway obtains the session user ID and calls
    `orders.v1.OrdersService.CancelOrder` with it and the order ID.
-3. Orders updates only an owned `Created` or `AwaitingPayment` order to
-   `Canceled` and writes an `OrderCanceled` event to its outbox in the same
-   transaction. Canceling an already canceled order succeeds unchanged and
-   does not write a second event.
+3. Orders updates only an owned `Created` order to `Canceled` and writes an
+   `OrderCanceled` event to its outbox in the same transaction. Canceling an
+   already canceled order succeeds unchanged and does not write a second event.
 4. The gateway returns `200` with the canceled order. Missing and unowned
-   orders return `404`; completed orders return `409 ALREADY_EXISTS`.
+   orders return `404`; `AwaitingPayment` and completed orders return
+   `409 ALREADY_EXISTS`. Cancellation or refund after a successful payment is
+   a separate, deferred payment-provider flow.
 
 ## Get Order Flow
 
@@ -351,26 +353,26 @@ own internal `CONCERT_ASSISTANT_DATABASE_URL`.
 
 Local ports:
 
-| Component         | Address                              |
-| ----------------- | ------------------------------------ |
-| API gateway       | `http://localhost:3000`              |
-| Identity gRPC     | `identity:50051` within Compose only |
-| Identity Postgres | `localhost:5432`                     |
-| Tickets gRPC      | `tickets:50052` within Compose only  |
-| Tickets Postgres  | `localhost:5433`                     |
-| Orders Postgres   | `localhost:5434`                     |
-| Payments gRPC     | `payments:50054` within Compose only |
-| Payments Postgres | `localhost:5435`                     |
-| Concert Assistant Postgres | `localhost:5436`               |
-| Concert Assistant | `http://localhost:7860`               |
-| NATS JetStream    | `nats://localhost:4222`              |
-| NATS monitoring   | `http://localhost:8222`              |
-| Redis             | `localhost:6379`                     |
-| Redis Insight     | `http://localhost:5540`              |
-| NUI               | `http://localhost:31311`             |
-| Mailpit inbox     | `http://localhost:8025`              |
-| Grafana           | `http://localhost:3002`              |
-| Prometheus        | `http://localhost:9090`              |
+| Component                  | Address                              |
+| -------------------------- | ------------------------------------ |
+| API gateway                | `http://localhost:3000`              |
+| Identity gRPC              | `identity:50051` within Compose only |
+| Identity Postgres          | `localhost:5432`                     |
+| Tickets gRPC               | `tickets:50052` within Compose only  |
+| Tickets Postgres           | `localhost:5433`                     |
+| Orders Postgres            | `localhost:5434`                     |
+| Payments gRPC              | `payments:50054` within Compose only |
+| Payments Postgres          | `localhost:5435`                     |
+| Concert Assistant Postgres | `localhost:5436`                     |
+| Concert Assistant          | `http://localhost:7860`              |
+| NATS JetStream             | `nats://localhost:4222`              |
+| NATS monitoring            | `http://localhost:8222`              |
+| Redis                      | `localhost:6379`                     |
+| Redis Insight              | `http://localhost:5540`              |
+| NUI                        | `http://localhost:31311`             |
+| Mailpit inbox              | `http://localhost:8025`              |
+| Grafana                    | `http://localhost:3002`              |
+| Prometheus                 | `http://localhost:9090`              |
 
 NUI and Redis Insight are optional local development tools. Start them with
 `make docker-up-tools`. In NUI, add a connection to `nats://nats:4222`. The
@@ -384,12 +386,12 @@ the Compose network with Redis. Their configurations persist in the local
 
 ## Services
 
-| Service           | Technology        | Persistence            |
-| ----------------- | ----------------- | ---------------------- |
-| tickets           | Go                | `tickets-db`           |
-| orders            | Go                | `orders-db`            |
-| payments          | Go                | `payments-db`          |
-| expiration        | NestJS and BullMQ | Redis                  |
+| Service           | Technology                   | Persistence            |
+| ----------------- | ---------------------------- | ---------------------- |
+| tickets           | Go                           | `tickets-db`           |
+| orders            | Go                           | `orders-db`            |
+| payments          | Go                           | `payments-db`          |
+| expiration        | NestJS and BullMQ            | Redis                  |
 | concert-assistant | Python, uv, Gradio, pgvector | `concert-assistant-db` |
 
 Concert Assistant is a public, unauthenticated Gradio service on port `7860`.

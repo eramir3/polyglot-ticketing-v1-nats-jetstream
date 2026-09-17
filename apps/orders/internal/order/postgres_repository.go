@@ -136,7 +136,8 @@ func findBlockingOrder(ctx context.Context, tx pgx.Tx, ticketID string) (Order, 
 		WHERE ticket_id = $1
 		  AND (
 			status = 'Complete'
-			OR (status IN ('Created', 'AwaitingPayment') AND expires_at > NOW())
+			OR status = 'AwaitingPayment'
+			OR (status = 'Created' AND expires_at > NOW())
 		  )
 		ORDER BY CASE WHEN status = 'Complete' THEN 0 ELSE 1 END, expires_at DESC
 		LIMIT 1`, ticketID).Scan(
@@ -233,7 +234,7 @@ func (repository *PostgresRepository) CancelByIDAndUser(
 		    aggregate_version = aggregate_version + 1
 		WHERE id = $1
 		  AND user_id = $2
-		  AND status IN ('Created', 'AwaitingPayment')
+		  AND status = 'Created'
 		RETURNING id::text, expires_at, user_id, ticket_id::text, status::text, aggregate_version`,
 		orderID,
 		userID,

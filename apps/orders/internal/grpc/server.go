@@ -47,7 +47,7 @@ func (server *Server) CancelOrder(
 	if errors.Is(err, order.ErrOrderNotCancelable) {
 		return nil, structuredError(codes.AlreadyExists, []order.ValidationError{{
 			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_ALREADY_EXISTS),
-			Message: "Completed orders cannot be canceled.",
+			Message: "Orders awaiting payment or already complete cannot be canceled.",
 		}})
 	}
 	if err != nil {

@@ -51,6 +51,24 @@ func TestCancelOrderLogsUnexpectedFailure(t *testing.T) {
 	assertInternalErrorLog(t, err, logs.String(), "order cancellation failed", "operation=cancel_order", "order_id="+orderID)
 }
 
+func TestCancelOrderReturnsConflictForOrderThatCannotBeCanceled(t *testing.T) {
+	server := NewServer(
+		order.NewService(notCancelableOrderRepository{}),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	)
+
+	_, err := server.CancelOrder(context.Background(), &ordersv1.CancelOrderRequest{
+		OrderId: orderID,
+		UserId:  userID,
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("expected already exists status, got %v", status.Code(err))
+	}
+	if !strings.Contains(status.Convert(err).Message(), "Orders awaiting payment or already complete cannot be canceled.") {
+		t.Fatalf("unexpected error message: %q", status.Convert(err).Message())
+	}
+}
+
 func assertInternalErrorLog(t *testing.T, err error, logs string, message string, fields ...string) {
 	t.Helper()
 	if status.Code(err) != codes.Internal {
@@ -69,6 +87,12 @@ func assertInternalErrorLog(t *testing.T, err error, logs string, message string
 }
 
 type failingOrderRepository struct{}
+
+type notCancelableOrderRepository struct{ failingOrderRepository }
+
+func (notCancelableOrderRepository) CancelByIDAndUser(context.Context, string, string) (order.Order, error) {
+	return order.Order{}, order.ErrOrderNotCancelable
+}
 
 func (failingOrderRepository) CancelByIDAndUser(context.Context, string, string) (order.Order, error) {
 	return order.Order{}, errors.New("database unavailable")
