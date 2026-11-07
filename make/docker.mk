@@ -12,6 +12,9 @@ docker-up-tools: ## Start optional local development tools, including NUI, Redis
 docker-down: ## Stop and remove the local Docker Compose stack.
 	docker compose down
 
+docker-stop: ## Stop the local Docker Compose stack.
+	docker compose down
+
 docker-reset: ## Delete all application and optional-tool Compose data, then rebuild a fresh stack.
 	docker compose --profile tools down --volumes --remove-orphans
 	docker compose up -d --build
