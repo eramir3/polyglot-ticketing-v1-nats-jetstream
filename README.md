@@ -85,8 +85,8 @@ without overriding explicitly exported shell variables. Docker Compose forwards
 the LLM provider settings to its container and overrides
 `CONCERT_ASSISTANT_DATABASE_URL` with its internal database address.
 
-Gateway integration tests and the Orders and Payments integration tests use
-Testcontainers, so they require a working Docker container runtime.
+Gateway integration tests and the Tickets, Orders, and Payments integration
+tests use Testcontainers, so they require a working Docker container runtime.
 
 For local payment stress testing, set
 `PAYMENT_PROCESSOR_RANDOM_FAILURES=true` in `.env`. The simulated processor
@@ -180,6 +180,12 @@ and read an HTTP-only session cookie. The implemented routes are:
 | Tickets | `GET /api/tickets`, `GET /api/tickets/:id`, `POST /api/tickets`, `PUT /api/tickets/:id` |
 | Orders | `GET /api/orders`, `GET /api/orders/:id`, `POST /api/orders`, `DELETE /api/orders/:id` |
 | Payments | `POST /api/payments` |
+
+Ticket and order creation require an `Idempotency-Key` header (a UUID is
+recommended). Generate one per new action and reuse it when retrying. Matching
+retries replay the original successful response for 24 hours. Reusing the key
+with different input returns `409`; omitting it returns `400`. See the creation
+idempotency contract in [SPEC.md](SPEC.md).
 
 Identity and the Tickets, Orders, and Payments gRPC services are private to the
 Compose network. They are not public HTTP endpoints.

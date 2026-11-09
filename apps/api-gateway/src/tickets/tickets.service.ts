@@ -28,12 +28,14 @@ export class TicketsService implements OnModuleInit {
   async createTicket(
     request: Pick<CreateTicketRequest, 'price' | 'title'>,
     userId: string,
+    idempotencyKey: string,
   ): Promise<CreateTicketResponse> {
     try {
       return await firstValueFrom(
         this.ticketsService.createTicket({
           ...request,
           userId,
+          idempotencyKey,
         }),
       );
     } catch (error: unknown) {

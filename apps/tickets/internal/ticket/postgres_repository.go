@@ -2,6 +2,7 @@ package ticket
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	ticketevents "polyglot-ticketing-v1/contracts/tickets"
+	"polyglot-ticketing-v1/internal/idempotency"
 	"polyglot-ticketing-v1/internal/tracing"
 	ticketsv1 "polyglot-ticketing-v1/protogen/go/tickets/v1"
 )
@@ -25,11 +27,32 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 }
 
 func (repository *PostgresRepository) Create(ctx context.Context, input CreateInput) (Ticket, error) {
-	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Ticket{}, err
 	}
 	defer tx.Rollback(ctx)
+	fingerprint, err := idempotency.Fingerprint(struct {
+		Title string
+		Price int64
+	}{input.Title, input.Price})
+	if err != nil {
+		return Ticket{}, err
+	}
+	snapshot, err := idempotency.Claim(ctx, tx, input.UserID, "create_ticket", input.IdempotencyKey, fingerprint)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if snapshot != nil {
+		var replay Ticket
+		if err := json.Unmarshal(snapshot, &replay); err != nil {
+			return Ticket{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return Ticket{}, err
+		}
+		return replay, nil
+	}
 
 	var created Ticket
 	err = tx.QueryRow(
@@ -59,10 +82,12 @@ func (repository *PostgresRepository) Create(ctx context.Context, input CreateIn
 	if err != nil {
 		return Ticket{}, err
 	}
+	if err := idempotency.Complete(ctx, tx, input.UserID, "create_ticket", input.IdempotencyKey, created); err != nil {
+		return Ticket{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Ticket{}, err
 	}
-
 	return created, nil
 }
 

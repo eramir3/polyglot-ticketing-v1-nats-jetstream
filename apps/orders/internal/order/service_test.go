@@ -13,7 +13,7 @@ func TestServiceReservesTicketForFifteenMinutes(t *testing.T) {
 	service.now = func() time.Time { return fixedNow }
 	ticketID := "f446d2f3-4515-4b78-8e6a-81797a2517a3"
 
-	_, validationErrors, err := service.ReserveTicket(context.Background(), ticketID, "user-1")
+	_, validationErrors, err := service.ReserveTicket(context.Background(), ticketID, "user-1", "test-key")
 	if err != nil {
 		t.Fatalf("reserve ticket: %v", err)
 	}
@@ -33,6 +33,7 @@ func TestServiceRejectsInvalidTicketID(t *testing.T) {
 		context.Background(),
 		"not-a-uuid",
 		"user-1",
+		"test-key",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -48,6 +49,7 @@ func TestServiceReturnsMissingProjectedTicket(t *testing.T) {
 		context.Background(),
 		"f446d2f3-4515-4b78-8e6a-81797a2517a3",
 		"user-1",
+		"test-key",
 	)
 	if len(validationErrors) != 0 {
 		t.Fatalf("unexpected validation errors: %+v", validationErrors)

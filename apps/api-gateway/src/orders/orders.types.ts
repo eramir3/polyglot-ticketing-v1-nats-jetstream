@@ -13,6 +13,7 @@ export type OrderStatus =
   | 'Created';
 
 export interface CreateOrderRequest {
+  idempotencyKey: string;
   ticketId: string;
   userId: string;
 }

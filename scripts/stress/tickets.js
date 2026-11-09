@@ -48,7 +48,8 @@ function readPositiveInteger(value, fallback) {
 
 function readConfig() {
   //const cookie = process.env.STRESS_COOKIE;
-  const cookie = 'better-auth.session_token=bzdz3AQKnZhcRUQI3wbAtdHg1bArV1N5.gbiMV9eRFvIZo8T58oZkv%2B7b8jmQgZu09SiJoRK6FWM%3D'
+  const cookie =
+    'better-auth.session_token=bzdz3AQKnZhcRUQI3wbAtdHg1bArV1N5.gbiMV9eRFvIZo8T58oZkv%2B7b8jmQgZu09SiJoRK6FWM%3D';
   if (!cookie) {
     throw new Error('STRESS_COOKIE is required');
   }
@@ -134,7 +135,10 @@ function ticketUrl(ticketsUrl, ticketId) {
 async function createTicket(config, title) {
   const response = await requestJson(config, config.ticketsUrl, {
     body: JSON.stringify({ price: INITIAL_PRICE, title }),
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'Idempotency-Key': randomUUID(),
+    },
     method: 'POST',
   });
   assertStatus(response, 201, 'Ticket creation');

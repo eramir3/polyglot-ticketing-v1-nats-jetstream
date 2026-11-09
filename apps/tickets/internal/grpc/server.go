@@ -11,6 +11,7 @@ import (
 
 	"polyglot-ticketing-v1/apps/tickets/internal/errorcode"
 	"polyglot-ticketing-v1/apps/tickets/internal/ticket"
+	"polyglot-ticketing-v1/internal/idempotency"
 	commonv1 "polyglot-ticketing-v1/protogen/go/common/v1"
 	ticketsv1 "polyglot-ticketing-v1/protogen/go/tickets/v1"
 )
@@ -30,12 +31,20 @@ func (server *Server) CreateTicket(
 	request *ticketsv1.CreateTicketRequest,
 ) (*ticketsv1.CreateTicketResponse, error) {
 	created, validationErrors, err := server.service.CreateTicket(ctx, ticket.CreateInput{
-		Title:  request.GetTitle(),
-		Price:  request.GetPrice(),
-		UserID: request.GetUserId(),
+		IdempotencyKey: request.GetIdempotencyKey(),
+		Title:          request.GetTitle(),
+		Price:          request.GetPrice(),
+		UserID:         request.GetUserId(),
 	})
 	if len(validationErrors) > 0 {
 		return nil, structuredError(codes.InvalidArgument, validationErrors)
+	}
+	if errors.Is(err, idempotency.ErrMismatch) {
+		return nil, structuredError(codes.AlreadyExists, []ticket.ValidationError{{
+			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_ALREADY_EXISTS),
+			Field:   "idempotencyKey",
+			Message: "Idempotency key was already used with different input.",
+		}})
 	}
 	if err != nil {
 		server.logger.Error("ticket creation failed", "operation", "create_ticket", "error", err)

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"polyglot-ticketing-v1/apps/orders/internal/errorcode"
+	"polyglot-ticketing-v1/internal/idempotency"
 	commonv1 "polyglot-ticketing-v1/protogen/go/common/v1"
 )
 
@@ -24,15 +25,25 @@ func (service *Service) ReserveTicket(
 	ctx context.Context,
 	ticketID string,
 	userID string,
+	idempotencyKey string,
 ) (ReservationResult, []ValidationError, error) {
 	if validationErrors := validateTicketReservation(ticketID, userID); len(validationErrors) > 0 {
 		return ReservationResult{}, validationErrors, nil
 	}
 
+	if !idempotency.ValidKey(idempotencyKey) {
+		return ReservationResult{}, []ValidationError{{
+			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_INVALID_ARGUMENT),
+			Field:   "idempotencyKey",
+			Message: "Idempotency key must contain 1–128 letters, digits, underscores, or hyphens.",
+		}}, nil
+	}
+	ticketID = uuid.MustParse(ticketID).String()
 	reservation, err := service.repository.ReserveTicket(ctx, TicketReservationInput{
-		ExpiresAt: service.now().UTC().Add(ExpirationWindow),
-		TicketID:  ticketID,
-		UserID:    userID,
+		IdempotencyKey: idempotencyKey,
+		ExpiresAt:      service.now().UTC().Add(ExpirationWindow),
+		TicketID:       ticketID,
+		UserID:         userID,
 	})
 	return reservation, nil, err
 }

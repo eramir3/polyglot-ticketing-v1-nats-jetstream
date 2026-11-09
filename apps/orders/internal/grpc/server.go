@@ -12,6 +12,7 @@ import (
 
 	"polyglot-ticketing-v1/apps/orders/internal/errorcode"
 	"polyglot-ticketing-v1/apps/orders/internal/order"
+	"polyglot-ticketing-v1/internal/idempotency"
 	commonv1 "polyglot-ticketing-v1/protogen/go/common/v1"
 	ordersv1 "polyglot-ticketing-v1/protogen/go/orders/v1"
 )
@@ -74,6 +75,7 @@ func (server *Server) CreateOrder(
 		ctx,
 		request.GetTicketId(),
 		request.GetUserId(),
+		request.GetIdempotencyKey(),
 	)
 	if len(validationErrors) > 0 {
 		return nil, structuredError(codes.InvalidArgument, validationErrors)
@@ -88,6 +90,13 @@ func (server *Server) CreateOrder(
 		return nil, structuredError(codes.AlreadyExists, []order.ValidationError{{
 			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_ALREADY_EXISTS),
 			Message: "Ticket is currently reserved.",
+		}})
+	}
+	if errors.Is(err, idempotency.ErrMismatch) {
+		return nil, structuredError(codes.AlreadyExists, []order.ValidationError{{
+			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_ALREADY_EXISTS),
+			Field:   "idempotencyKey",
+			Message: "Idempotency key was already used with different input.",
 		}})
 	}
 	if err != nil {

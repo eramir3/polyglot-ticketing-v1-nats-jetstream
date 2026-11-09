@@ -1,6 +1,7 @@
 import { Observable } from 'rxjs';
 
 export interface CreateTicketRequest {
+  idempotencyKey: string;
   title: string;
   price: number;
   userId: string;

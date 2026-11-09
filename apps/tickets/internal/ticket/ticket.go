@@ -24,9 +24,10 @@ type Ticket struct {
 }
 
 type CreateInput struct {
-	Title  string
-	Price  int64
-	UserID string
+	IdempotencyKey string
+	Title          string
+	Price          int64
+	UserID         string
 }
 
 type UpdateInput struct {

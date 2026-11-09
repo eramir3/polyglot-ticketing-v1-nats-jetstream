@@ -15,6 +15,7 @@ message CreateTicketRequest {
   string title = 1;
   int64 price = 2;
   string user_id = 3;
+  string idempotency_key = 4;
 }
 
 message CreateTicketResponse {

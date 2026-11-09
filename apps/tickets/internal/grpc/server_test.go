@@ -22,7 +22,7 @@ func TestCreateTicketLogsUnexpectedFailure(t *testing.T) {
 		slog.New(slog.NewTextHandler(&logs, nil)),
 	)
 
-	_, err := server.CreateTicket(context.Background(), &ticketsv1.CreateTicketRequest{
+	_, err := server.CreateTicket(context.Background(), &ticketsv1.CreateTicketRequest{IdempotencyKey: "test-key",
 		Title:  "Concert ticket",
 		Price:  10_000,
 		UserId: "user-1",
@@ -103,4 +103,14 @@ func (failingTicketUpdateRepository) FindByID(context.Context, string) (ticket.T
 
 func (failingTicketUpdateRepository) Update(context.Context, string, ticket.UpdateInput) (ticket.Ticket, error) {
 	return ticket.Ticket{}, errors.New("database unavailable")
+}
+
+func TestCreateRejectsInvalidIdempotencyKeys(t *testing.T) {
+	for _, key := range []string{"", "bad key", strings.Repeat("x", 129)} {
+		server := NewServer(ticket.NewService(failingTicketRepository{}), slog.Default())
+		_, err := server.CreateTicket(context.Background(), &ticketsv1.CreateTicketRequest{IdempotencyKey: key, Title: "Concert", Price: 100, UserId: "user-1"})
+		if status.Code(err) != codes.InvalidArgument || !strings.Contains(status.Convert(err).Message(), "idempotencyKey") {
+			t.Fatalf("expected key validation, got %v", err)
+		}
+	}
 }

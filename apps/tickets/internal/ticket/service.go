@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"polyglot-ticketing-v1/apps/tickets/internal/errorcode"
+	"polyglot-ticketing-v1/internal/idempotency"
 	commonv1 "polyglot-ticketing-v1/protogen/go/common/v1"
 )
 
@@ -29,6 +30,13 @@ func (service *Service) CreateTicket(ctx context.Context, input CreateInput) (Ti
 		return Ticket{}, validationErrors, nil
 	}
 
+	if !idempotency.ValidKey(input.IdempotencyKey) {
+		return Ticket{}, []ValidationError{{
+			Code:    errorcode.String(commonv1.ErrorCode_ERROR_CODE_INVALID_ARGUMENT),
+			Field:   "idempotencyKey",
+			Message: "Idempotency key must contain 1–128 letters, digits, underscores, or hyphens.",
+		}}, nil
+	}
 	created, err := service.repository.Create(ctx, input)
 	return created, nil, err
 }

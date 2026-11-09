@@ -22,12 +22,13 @@ const (
 )
 
 type CreateTicketRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
-	Price         int64                  `protobuf:"varint,2,opt,name=price,proto3" json:"price,omitempty"`
-	UserId        string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Title          string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	Price          int64                  `protobuf:"varint,2,opt,name=price,proto3" json:"price,omitempty"`
+	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateTicketRequest) Reset() {
@@ -77,6 +78,13 @@ func (x *CreateTicketRequest) GetPrice() int64 {
 func (x *CreateTicketRequest) GetUserId() string {
 	if x != nil {
 		return x.UserId
+	}
+	return ""
+}
+
+func (x *CreateTicketRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -502,11 +510,12 @@ var File_tickets_v1_tickets_proto protoreflect.FileDescriptor
 const file_tickets_v1_tickets_proto_rawDesc = "" +
 	"\n" +
 	"\x18tickets/v1/tickets.proto\x12\n" +
-	"tickets.v1\"Z\n" +
+	"tickets.v1\"\x83\x01\n" +
 	"\x13CreateTicketRequest\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x14\n" +
 	"\x05price\x18\x02 \x01(\x03R\x05price\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\"k\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\x12'\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"k\n" +
 	"\x14CreateTicketResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x14\n" +

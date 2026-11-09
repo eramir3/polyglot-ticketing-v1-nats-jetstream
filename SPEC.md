@@ -169,8 +169,8 @@ through the public API are also intentionally deferred, low-priority work.
 
 ## Create Ticket Flow
 
-1. A client calls `POST /api/tickets` with `title` and a positive integer
-   `price` no larger than `9007199254740991`.
+1. A client calls `POST /api/tickets` with an `Idempotency-Key` header, `title`,
+   and a positive integer `price` no larger than `9007199254740991`.
 2. The gateway validates the request, resolves the current user from the Better
    Auth session, and calls `tickets.v1.TicketsService.CreateTicket` over gRPC.
 3. Tickets validates the complete gRPC request and persists the ticket in
@@ -277,6 +277,42 @@ tickets builds depend on this generation step.
 password from 8 through 128 characters. `identity.v1.SignInRequest` requires a
 valid email address and a password from 8 through 128 characters.
 
+## Creation Idempotency
+
+`POST /api/tickets` and `POST /api/orders` require exactly one
+`Idempotency-Key` header: 1–128 case-sensitive ASCII letters, digits, hyphens,
+or underscores. Clients should generate a UUID for each logical action and
+reuse it for retries, including retries after a timeout. A new action needs a
+new key. The gateway forwards it as `idempotency_key` in the creation gRPC
+request; both Go services also require and validate this field.
+
+Each service stores keys in its own database, scoped by user and operation.
+A deterministic SHA-256 fingerprint covers ticket title/price or the normalized
+order ticket UUID. Matching retries within 24 hours replay the original
+successful body and HTTP status, even after edits, cancellation, expiry, or
+payment transitions. Use GET for current state. Ticket responses replay `201`;
+Orders responses replay the original `201` or `200`. New keys retain Orders'
+existing behavior of returning an active same-user reservation with `200`.
+
+The key claim, successful response snapshot, resource mutation, and outbox write
+share one transaction. Concurrent retries wait for the winning transaction and
+replay its result without another event. Failed attempts roll back the claim;
+validation, domain, and infrastructure errors are not cached. A different
+payload under the same unexpired scoped key returns `409 ALREADY_EXISTS` with
+field `idempotencyKey`. Missing or invalid keys return `400 INVALID_ARGUMENT`.
+
+Retention is 24 hours from recording success and is not extended by retries.
+Expired keys can execute a new action, subject to current business rules.
+Each service reclaims expired keys transactionally and runs cleanup at startup
+and hourly, removing at most 1000 unlocked expired records per pass. Cleanup
+is independent of expiry enforcement. Event IDs continue to identify individual
+NATS events; keys do not replace event deduplication.
+
+This required-key contract breaks callers that omit the header or gRPC field.
+Apply migration `000007` in both service databases before deploying updated
+services and gateway; update external clients in the same rollout. No frontend
+implementation belongs in this repository.
+
 ## Error Contract
 
 The public REST error response is:
@@ -342,9 +378,9 @@ make docker-up-tools
 ```
 
 The Makefile delegates to the existing Nx, Go, Buf, and Docker Compose
-commands. Gateway integration tests plus the Orders and Payments PostgreSQL
-integration tests use Testcontainers and require a working Docker container
-runtime.
+commands. Gateway integration tests plus the Tickets, Orders, and Payments
+PostgreSQL integration tests use Testcontainers and require a working Docker
+container runtime.
 
 Concert Assistant's local uv entry point loads the repository root `.env`
 without overriding values explicitly supplied in the shell. Docker Compose

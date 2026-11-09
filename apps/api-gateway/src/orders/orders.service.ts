@@ -47,10 +47,11 @@ export class OrdersService implements OnModuleInit {
   async createOrder(
     ticketId: string,
     userId: string,
+    idempotencyKey: string,
   ): Promise<OrderCreationResult> {
     try {
       const response = await firstValueFrom(
-        this.ordersService.createOrder({ ticketId, userId }),
+        this.ordersService.createOrder({ ticketId, userId, idempotencyKey }),
       );
       return toCreateOrderResponse(response);
     } catch (error: unknown) {

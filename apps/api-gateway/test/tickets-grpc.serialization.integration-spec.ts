@@ -49,6 +49,7 @@ describe('tickets gRPC serialization', () => {
       ticketsService.createTicket(
         { price: 10_000, title: 'Metallica' },
         'user-1',
+        'serialization-test',
       ),
     ).resolves.toEqual({
       id: 'ticket-1',
@@ -102,9 +103,10 @@ describe('tickets gRPC serialization', () => {
     server = new Server();
     server.addService(ticketPackage.tickets.v1.TicketsService.service, {
       createTicket: (
-        _call: unknown,
+        call: { request: { idempotencyKey: string } },
         callback: (error: null, response: object) => void,
       ) => {
+        expect(call.request.idempotencyKey).toBe('serialization-test');
         callback(null, {
           id: 'ticket-1',
           price: 10_000,

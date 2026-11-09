@@ -467,7 +467,7 @@ describe('orders endpoints', () => {
       expect(cancellationCountAfterRetry).toBe(cancellationCountBefore + 1);
     });
 
-    it('cancels an AwaitingPayment order belonging to the authenticated user', async () => {
+    it('rejects cancellation of an AwaitingPayment order belonging to the authenticated user', async () => {
       const ticketId = await seedProjectedTicket();
       const created = await postOrder({ ticketId }, sessionCookie);
       await setOrderState(
@@ -481,10 +481,9 @@ describe('orders endpoints', () => {
       );
 
       expect(created.status).toBe(201);
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(409);
       expect(response.body).toEqual({
-        ...(created.body as OrderResponse),
-        status: 'Canceled',
+        errors: [expect.objectContaining({ code: 'ALREADY_EXISTS' })],
       });
     });
 
@@ -720,11 +719,104 @@ describe('orders endpoints', () => {
     return (await createdOrderEvents()).length;
   }
 
+  describe('idempotency keys', () => {
+    it('preserves an original 200 reservation response when replaying after cancellation', async () => {
+      const ticketId = await seedProjectedTicket();
+      const created = await postOrder({ ticketId }, sessionCookie);
+      const key = randomUUID();
+      const existing = await postOrder({ ticketId }, sessionCookie, key);
+      expect(existing.status).toBe(200);
+      await deleteOrder((created.body as OrderResponse).id, sessionCookie);
+      const retry = await postOrder({ ticketId }, sessionCookie, key);
+      expect(retry.status).toBe(200);
+      expect(retry.body).toEqual(existing.body);
+    });
+
+    it('fingerprints equivalent ticket UUIDs consistently', async () => {
+      const ticketId = await seedProjectedTicket();
+      const key = randomUUID();
+      const first = await postOrder({ ticketId }, sessionCookie, key);
+      const retry = await postOrder(
+        { ticketId: ticketId.toUpperCase() },
+        sessionCookie,
+        key,
+      );
+      expect(retry.status).toBe(first.status);
+      expect(retry.body).toEqual(first.body);
+    });
+
+    it.each([null, '', 'bad key', 'x'.repeat(129)])(
+      'rejects invalid key %s',
+      async (key) => {
+        const response = await postOrder(
+          { ticketId: await seedProjectedTicket() },
+          sessionCookie,
+          key,
+        );
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({
+          errors: [
+            expect.objectContaining({
+              code: 'INVALID_ARGUMENT',
+              field: 'idempotencyKey',
+            }),
+          ],
+        });
+      },
+    );
+
+    it('replays concurrent requests with the original response and status', async () => {
+      const body = { ticketId: await seedProjectedTicket() };
+      const key = randomUUID();
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () => postOrder(body, sessionCookie, key)),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(201);
+        expect(response.body).toEqual(responses[0].body);
+      }
+    });
+
+    it('rejects reuse with different input', async () => {
+      const key = randomUUID();
+      const first = await postOrder(
+        { ticketId: await seedProjectedTicket() },
+        sessionCookie,
+        key,
+      );
+      expect(first.status).toBe(201);
+      const changed = { ticketId: await seedProjectedTicket() };
+      const response = await postOrder(changed, sessionCookie, key);
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual({
+        errors: [
+          expect.objectContaining({
+            code: 'ALREADY_EXISTS',
+            field: 'idempotencyKey',
+          }),
+        ],
+      });
+    });
+
+    it('replays the snapshot after the resource changes', async () => {
+      const body = { ticketId: await seedProjectedTicket() };
+      const key = randomUUID();
+      const first = await postOrder(body, sessionCookie, key);
+      expect(first.status).toBe(201);
+      const id = (first.body as { id: string }).id;
+      await deleteOrder(id, sessionCookie);
+      const retry = await postOrder(body, sessionCookie, key);
+      expect(retry.status).toBe(first.status);
+      expect(retry.body).toEqual(first.body);
+    });
+  });
+
   function postOrder(
     body: { ticketId: string },
     cookie?: string,
+    key: string | null = randomUUID(),
   ): Promise<HttpResponse> {
-    return postJson('/api/orders', body, cookie);
+    return postJson('/api/orders', body, cookie, key);
   }
 
   async function getOrders(cookie?: string): Promise<HttpResponse> {
@@ -768,11 +860,13 @@ describe('orders endpoints', () => {
     path: string,
     body: Record<string, string>,
     cookie?: string,
+    key?: string | null,
   ): Promise<HttpResponse> {
     const response = await fetch(`${gatewayUrl}${path}`, {
       body: JSON.stringify(body),
       headers: {
         'content-type': 'application/json',
+        ...(key == null ? {} : { 'Idempotency-Key': key }),
         ...(cookie === undefined ? {} : { cookie }),
       },
       method: 'POST',

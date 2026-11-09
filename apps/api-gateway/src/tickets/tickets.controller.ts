@@ -7,6 +7,7 @@ import {
   Put,
   UseGuards,
 } from '@nestjs/common';
+import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { CurrentUser } from '../identity/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../identity/authenticated-request';
 import { SessionAuthGuard } from '../identity/guards/session-auth.guard';
@@ -42,9 +43,10 @@ export class TicketsController {
   @Post()
   @UseGuards(SessionAuthGuard)
   createTicket(
+    @IdempotencyKey() idempotencyKey: string,
     @Body() dto: CreateTicketDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<CreateTicketResponse> {
-    return this.ticketsService.createTicket(dto, user.id);
+    return this.ticketsService.createTicket(dto, user.id, idempotencyKey);
   }
 }

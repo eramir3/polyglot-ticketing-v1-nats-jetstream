@@ -28,7 +28,7 @@ func TestCreateOrderLogsUnexpectedFailure(t *testing.T) {
 		slog.New(slog.NewTextHandler(&logs, nil)),
 	)
 
-	_, err := server.CreateOrder(context.Background(), &ordersv1.CreateOrderRequest{
+	_, err := server.CreateOrder(context.Background(), &ordersv1.CreateOrderRequest{IdempotencyKey: "test-key",
 		TicketId: ticketID,
 		UserId:   userID,
 	})
@@ -108,4 +108,14 @@ func (failingOrderRepository) ListByUser(context.Context, string) ([]order.Order
 
 func (failingOrderRepository) ReserveTicket(context.Context, order.TicketReservationInput) (order.ReservationResult, error) {
 	return order.ReservationResult{}, errors.New("database unavailable")
+}
+
+func TestCreateRejectsInvalidIdempotencyKeys(t *testing.T) {
+	for _, key := range []string{"", "bad key", strings.Repeat("x", 129)} {
+		server := NewServer(order.NewService(failingOrderRepository{}), slog.Default())
+		_, err := server.CreateOrder(context.Background(), &ordersv1.CreateOrderRequest{IdempotencyKey: key, TicketId: ticketID, UserId: userID})
+		if status.Code(err) != codes.InvalidArgument || !strings.Contains(status.Convert(err).Message(), "idempotencyKey") {
+			t.Fatalf("expected key validation, got %v", err)
+		}
+	}
 }

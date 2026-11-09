@@ -553,11 +553,79 @@ describe('tickets endpoints', () => {
     };
   }
 
+  describe('idempotency keys', () => {
+    it.each([null, '', 'bad key', 'x'.repeat(129)])(
+      'rejects invalid key %s',
+      async (key) => {
+        const response = await postTicket(
+          { title: 'Idempotent ticket', price: 100 },
+          sessionCookie,
+          key,
+        );
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({
+          errors: [
+            expect.objectContaining({
+              code: 'INVALID_ARGUMENT',
+              field: 'idempotencyKey',
+            }),
+          ],
+        });
+      },
+    );
+
+    it('replays concurrent requests with the original response and status', async () => {
+      const body = { title: 'Idempotent ticket', price: 100 };
+      const key = randomUUID();
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () => postTicket(body, sessionCookie, key)),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(201);
+        expect(response.body).toEqual(responses[0].body);
+      }
+    });
+
+    it('rejects reuse with different input', async () => {
+      const key = randomUUID();
+      const first = await postTicket(
+        { title: 'Idempotent ticket', price: 100 },
+        sessionCookie,
+        key,
+      );
+      expect(first.status).toBe(201);
+      const changed = { title: 'Changed ticket', price: 101 };
+      const response = await postTicket(changed, sessionCookie, key);
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual({
+        errors: [
+          expect.objectContaining({
+            code: 'ALREADY_EXISTS',
+            field: 'idempotencyKey',
+          }),
+        ],
+      });
+    });
+
+    it('replays the snapshot after the resource changes', async () => {
+      const body = { title: 'Idempotent ticket', price: 100 };
+      const key = randomUUID();
+      const first = await postTicket(body, sessionCookie, key);
+      expect(first.status).toBe(201);
+      const id = (first.body as { id: string }).id;
+      await putTicket(id, { title: 'Edited', price: 200 }, sessionCookie);
+      const retry = await postTicket(body, sessionCookie, key);
+      expect(retry.status).toBe(first.status);
+      expect(retry.body).toEqual(first.body);
+    });
+  });
+
   function postTicket(
     body: { title: string; price: number },
     cookie?: string,
+    key: string | null = randomUUID(),
   ): Promise<HttpResponse> {
-    return postJson('/api/tickets', body, cookie);
+    return postJson('/api/tickets', body, cookie, key);
   }
 
   function putTicket(
@@ -572,11 +640,13 @@ describe('tickets endpoints', () => {
     path: string,
     body: Record<string, string | number>,
     cookie?: string,
+    key?: string | null,
   ): Promise<HttpResponse> {
     const response = await fetch(`${gatewayUrl}${path}`, {
       body: JSON.stringify(body),
       headers: {
         'content-type': 'application/json',
+        ...(key == null ? {} : { 'Idempotency-Key': key }),
         ...(cookie === undefined ? {} : { cookie }),
       },
       method: 'POST',

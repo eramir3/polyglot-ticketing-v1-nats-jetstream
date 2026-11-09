@@ -17,19 +17,19 @@ func TestServiceCreateRejectsInvalidInput(t *testing.T) {
 	}{
 		{
 			name:  "missing title",
-			input: CreateInput{Price: 100, UserID: "user-1"},
+			input: CreateInput{IdempotencyKey: "test-key", Price: 100, UserID: "user-1"},
 			code:  "INVALID_TITLE",
 			field: "title",
 		},
 		{
 			name:  "non-positive price",
-			input: CreateInput{Title: "Concert ticket", UserID: "user-1"},
+			input: CreateInput{IdempotencyKey: "test-key", Title: "Concert ticket", UserID: "user-1"},
 			code:  "INVALID_PRICE",
 			field: "price",
 		},
 		{
 			name:  "price above the JavaScript safe integer limit",
-			input: CreateInput{Title: "Concert ticket", Price: MaxPrice + 1, UserID: "user-1"},
+			input: CreateInput{IdempotencyKey: "test-key", Title: "Concert ticket", Price: MaxPrice + 1, UserID: "user-1"},
 			code:  "INVALID_PRICE",
 			field: "price",
 		},
@@ -55,7 +55,7 @@ func TestServiceCreateRejectsInvalidInput(t *testing.T) {
 func TestServiceCreateAcceptsMaximumSafePrice(t *testing.T) {
 	service := NewService(fakeRepository{})
 
-	created, validationErrors, err := service.CreateTicket(context.Background(), CreateInput{
+	created, validationErrors, err := service.CreateTicket(context.Background(), CreateInput{IdempotencyKey: "test-key",
 		Title:  "Concert ticket",
 		Price:  MaxPrice,
 		UserID: "user-1",

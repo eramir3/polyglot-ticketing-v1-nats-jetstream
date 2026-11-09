@@ -39,6 +39,7 @@ export default function (performanceUser) {
     JSON.stringify({ price, title }),
     {
       headers: {
+        'Idempotency-Key': `create-${runSuffix()}-${__VU}-${__ITER}`,
         Cookie: performanceUser.sessionCookie,
         'Content-Type': 'application/json',
         'X-Ticketing-Load-Test-Token': loadTestToken,

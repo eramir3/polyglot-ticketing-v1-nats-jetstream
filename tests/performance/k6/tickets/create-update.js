@@ -90,10 +90,12 @@ function createTicket(performanceUser, title) {
     title,
     userId: performanceUser.userId,
   };
+  const parameters = requestParameters(performanceUser, 'tickets_create_update_create');
+  parameters.headers['Idempotency-Key'] = `create-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 1e9)}`;
   const response = http.post(
     `${baseUrl}/api/tickets`,
     JSON.stringify({ price: expectedTicket.price, title: expectedTicket.title }),
-    requestParameters(performanceUser, 'tickets_create_update_create'),
+    parameters,
   );
   const succeeded = check(
     response,

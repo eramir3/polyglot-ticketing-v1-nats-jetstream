@@ -16,6 +16,7 @@ service OrdersService {
 message CreateOrderRequest {
   string ticket_id = 1;
   string user_id = 2;
+  string idempotency_key = 3;
 }
 
 message CreateOrderResponse {

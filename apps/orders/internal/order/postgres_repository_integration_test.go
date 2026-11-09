@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +22,8 @@ import (
 
 	orderevents "polyglot-ticketing-v1/contracts/orders"
 	ordersv1 "polyglot-ticketing-v1/protogen/go/orders/v1"
+
+	"polyglot-ticketing-v1/internal/idempotency"
 )
 
 func TestPostgresRepositoryCancelByIDAndUser(t *testing.T) {
@@ -92,7 +96,7 @@ func TestPostgresRepositoryReservationBlockingLifecycle(t *testing.T) {
 	t.Run("expired created order no longer blocks a new reservation", func(t *testing.T) {
 		ticketID, oldOrderID := seedOrderWithExpiration(t, ctx, pool, StatusCreated, time.Now().UTC().Add(-time.Minute))
 
-		result, err := repository.ReserveTicket(ctx, TicketReservationInput{
+		result, err := repository.ReserveTicket(ctx, TicketReservationInput{IdempotencyKey: uuid.NewString(),
 			ExpiresAt: time.Now().UTC().Add(ExpirationWindow),
 			TicketID:  ticketID,
 			UserID:    "user-2",
@@ -108,7 +112,7 @@ func TestPostgresRepositoryReservationBlockingLifecycle(t *testing.T) {
 	t.Run("expired awaiting payment order blocks a new reservation", func(t *testing.T) {
 		ticketID, _ := seedOrderWithExpiration(t, ctx, pool, StatusAwaitingPayment, time.Now().UTC().Add(-time.Minute))
 
-		_, err := repository.ReserveTicket(ctx, TicketReservationInput{
+		_, err := repository.ReserveTicket(ctx, TicketReservationInput{IdempotencyKey: uuid.NewString(),
 			ExpiresAt: time.Now().UTC().Add(ExpirationWindow),
 			TicketID:  ticketID,
 			UserID:    "user-2",
@@ -124,7 +128,7 @@ func TestPostgresRepositoryReservationBlockingLifecycle(t *testing.T) {
 			t.Fatalf("apply payment failure: %v", err)
 		}
 
-		result, err := repository.ReserveTicket(ctx, TicketReservationInput{
+		result, err := repository.ReserveTicket(ctx, TicketReservationInput{IdempotencyKey: uuid.NewString(),
 			ExpiresAt: time.Now().UTC().Add(ExpirationWindow),
 			TicketID:  ticketID,
 			UserID:    "user-2",
@@ -143,7 +147,7 @@ func TestPostgresRepositoryReservationBlockingLifecycle(t *testing.T) {
 			t.Fatalf("apply payment success: %v", err)
 		}
 
-		_, err := repository.ReserveTicket(ctx, TicketReservationInput{
+		_, err := repository.ReserveTicket(ctx, TicketReservationInput{IdempotencyKey: uuid.NewString(),
 			ExpiresAt: time.Now().UTC().Add(ExpirationWindow),
 			TicketID:  ticketID,
 			UserID:    "user-2",
@@ -233,5 +237,138 @@ func applyOrderRepositoryMigrations(t *testing.T, databaseURL string) {
 	t.Cleanup(func() { _, _ = migrator.Close() })
 	if err := migrator.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatalf("apply orders migrations: %v", err)
+	}
+}
+
+func TestCreationIdempotency(t *testing.T) {
+	ctx := context.Background()
+	pool := startOrderRepositoryPostgres(t, ctx)
+	repository := NewPostgresRepository(pool)
+	ticketID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO tickets(id,title,price,aggregate_version) VALUES ($1,'Original',100,0)`, ticketID); err != nil {
+		t.Fatal(err)
+	}
+	input := TicketReservationInput{TicketID: ticketID, UserID: "user-1", IdempotencyKey: uuid.NewString(), ExpiresAt: time.Now().UTC().Add(ExpirationWindow)}
+	const callers = 8
+	results := make([]ReservationResult, callers)
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for i := range callers {
+		wg.Go(func() { results[i], errs[i] = repository.ReserveTicket(ctx, input) })
+	}
+	wg.Wait()
+	first := results[0]
+	for i := range callers {
+		if errs[i] != nil || !reflect.DeepEqual(first, results[i]) {
+			t.Fatalf("concurrent retry %d: result=%+v err=%v", i, results[i], errs[i])
+		}
+	}
+	var count int
+	for _, table := range []string{"orders", "outbox_events", "idempotency_keys"} {
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("%s count=%d err=%v", table, count, err)
+		}
+	}
+	// The retention deadline is anchored to the original success.
+	var deadline string
+	if err := pool.QueryRow(ctx, `SELECT expires_at::text FROM idempotency_keys`).Scan(&deadline); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReserveTicket(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	var replayDeadline string
+	if err := pool.QueryRow(ctx, `SELECT expires_at::text FROM idempotency_keys`).Scan(&replayDeadline); err != nil || deadline != replayDeadline {
+		t.Fatalf("retry changed deadline: %q -> %q (%v)", deadline, replayDeadline, err)
+	}
+	changed := input
+	changed.TicketID = uuid.NewString()
+	if _, err := repository.ReserveTicket(ctx, changed); !errors.Is(err, idempotency.ErrMismatch) {
+		t.Fatalf("expected mismatch, got %v", err)
+	}
+	// Replays must not read current resource state.
+	if _, err := pool.Exec(ctx, `UPDATE orders SET status='Canceled' WHERE id=$1`, first.Order.ID); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := repository.ReserveTicket(ctx, input)
+	if err != nil || !reflect.DeepEqual(first, replay) {
+		t.Fatalf("snapshot replay=%+v err=%v", replay, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE idempotency_keys SET expires_at=clock_timestamp()-interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := repository.ReserveTicket(ctx, input)
+	if err != nil || reflect.DeepEqual(first, fresh) {
+		t.Fatalf("expired key did not execute: %+v %v", fresh, err)
+	}
+	if err := idempotency.Cleanup(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = repository.ReserveTicket(ctx, input)
+	if err != nil || !reflect.DeepEqual(fresh, replay) {
+		t.Fatalf("cleanup removed active snapshot: %+v %v", replay, err)
+	}
+	// A different user has an independent key scope.
+	input.UserID = "user-2"
+	input.TicketID = uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO tickets(id,title,price,aggregate_version) VALUES ($1,'Other',100,0)`, input.TicketID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReserveTicket(ctx, input); err != nil {
+		t.Fatalf("user-scoped key: %v", err)
+	}
+
+	input.IdempotencyKey = uuid.NewString()
+	competing := input
+	competing.TicketID = uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO tickets(id,title,price,aggregate_version) VALUES ($1,'Competing',100,0)`, competing.TicketID); err != nil {
+		t.Fatal(err)
+	}
+	conflictErrors := make([]error, 2)
+	wg.Go(func() { _, conflictErrors[0] = repository.ReserveTicket(ctx, input) })
+	wg.Go(func() { _, conflictErrors[1] = repository.ReserveTicket(ctx, competing) })
+	wg.Wait()
+	successes, conflicts := 0, 0
+	for _, err := range conflictErrors {
+		if err == nil {
+			successes++
+		} else if errors.Is(err, idempotency.ErrMismatch) {
+			conflicts++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent mismatch results: %v", conflictErrors)
+	}
+}
+
+func TestCreationRollbackDoesNotConsumeKey(t *testing.T) {
+	ctx := context.Background()
+	pool := startOrderRepositoryPostgres(t, ctx)
+	repository := NewPostgresRepository(pool)
+	ticketID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO tickets(id,title,price,aggregate_version) VALUES ($1,'Original',100,0)`, ticketID); err != nil {
+		t.Fatal(err)
+	}
+	input := TicketReservationInput{TicketID: ticketID, UserID: "user-1", IdempotencyKey: uuid.NewString(), ExpiresAt: time.Now().UTC().Add(ExpirationWindow)}
+	// Force failure after inserting the resource, when the outbox write runs.
+	if _, err := pool.Exec(ctx, `ALTER TABLE outbox_events ADD CONSTRAINT reject_test_event CHECK (false) NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReserveTicket(ctx, input); err == nil {
+		t.Fatal("expected outbox failure")
+	}
+	for _, table := range []string{"orders", "idempotency_keys"} {
+		var count int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("rollback %s count=%d err=%v", table, count, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE outbox_events DROP CONSTRAINT reject_test_event`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReserveTicket(ctx, input); err != nil {
+		t.Fatalf("retry after rollback: %v", err)
 	}
 }

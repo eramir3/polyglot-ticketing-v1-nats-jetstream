@@ -48,3 +48,20 @@ public error boundary.
 `field`, when present, uses the public lower-camel-case request field name.
 Service implementation details, stack traces, and database errors must not be
 included in public error messages.
+
+## Creation Idempotency Keys
+
+`POST /api/tickets` and `POST /api/orders` require one `Idempotency-Key`
+header containing 1–128 ASCII letters, digits, underscores, or hyphens.
+Missing, repeated, or malformed keys return HTTP `400`, code
+`INVALID_ARGUMENT`, and field `idempotencyKey`. The owning gRPC services also
+validate the required `idempotency_key` creation field.
+
+Reusing an unexpired key for different validated business input returns gRPC
+`ALREADY_EXISTS`, translated to HTTP `409`, with public code `ALREADY_EXISTS`,
+field `idempotencyKey`, and message
+`Idempotency key was already used with different input.` Keys are case-sensitive
+and scoped by authenticated user and operation. Matching successful retries
+replay the original response and HTTP status for 24 hours; errors are not
+cached. Retries do not extend retention. See `SPEC.md` for transaction and
+expiry semantics.

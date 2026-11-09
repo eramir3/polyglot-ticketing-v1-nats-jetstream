@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
+	"polyglot-ticketing-v1/internal/idempotency"
 	"polyglot-ticketing-v1/apps/tickets/internal/consumer"
 	grpcserver "polyglot-ticketing-v1/apps/tickets/internal/grpc"
 	"polyglot-ticketing-v1/apps/tickets/internal/ticket"
@@ -37,6 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+	go idempotency.RunCleanup(ctx, pool, slog.Default())
 
 	repository := ticket.NewPostgresRepository(pool)
 	metrics, registry := observability.NewMetrics()

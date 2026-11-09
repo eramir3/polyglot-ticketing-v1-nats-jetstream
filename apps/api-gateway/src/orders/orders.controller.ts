@@ -9,6 +9,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { CurrentUser } from '../identity/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../identity/authenticated-request';
 import { SessionAuthGuard } from '../identity/guards/session-auth.guard';
@@ -23,11 +24,16 @@ export class OrdersController {
   @Post()
   @UseGuards(SessionAuthGuard)
   async createOrder(
+    @IdempotencyKey() idempotencyKey: string,
     @Body() dto: CreateOrderDto,
     @CurrentUser() user: AuthenticatedUser,
     @Res({ passthrough: true }) response: StatusResponse,
   ): Promise<OrderResponse> {
-    const result = await this.ordersService.createOrder(dto.ticketId, user.id);
+    const result = await this.ordersService.createOrder(
+      dto.ticketId,
+      user.id,
+      idempotencyKey,
+    );
     response.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
 
     return result.order;

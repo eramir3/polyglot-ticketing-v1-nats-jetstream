@@ -2,6 +2,7 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	orderevents "polyglot-ticketing-v1/contracts/orders"
+	"polyglot-ticketing-v1/internal/idempotency"
 	"polyglot-ticketing-v1/internal/tracing"
 	ordersv1 "polyglot-ticketing-v1/protogen/go/orders/v1"
 )
@@ -28,11 +30,29 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 // projection row. This prevents concurrent callers from both inserting an
 // active order for the same ticket.
 func (repository *PostgresRepository) ReserveTicket(ctx context.Context, input TicketReservationInput) (ReservationResult, error) {
-	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return ReservationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	fingerprint, err := idempotency.Fingerprint(struct{ TicketID string }{input.TicketID})
+	if err != nil {
+		return ReservationResult{}, err
+	}
+	snapshot, err := idempotency.Claim(ctx, tx, input.UserID, "create_order", input.IdempotencyKey, fingerprint)
+	if err != nil {
+		return ReservationResult{}, err
+	}
+	if snapshot != nil {
+		var replay ReservationResult
+		if err := json.Unmarshal(snapshot, &replay); err != nil {
+			return ReservationResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ReservationResult{}, err
+		}
+		return replay, nil
+	}
 
 	var projectedTicket Ticket
 	err = tx.QueryRow(ctx, `
@@ -58,6 +78,9 @@ func (repository *PostgresRepository) ReserveTicket(ctx context.Context, input T
 	}
 	if found {
 		if existing.UserID == input.UserID && existing.Status != StatusComplete {
+			if err := idempotency.Complete(ctx, tx, input.UserID, "create_order", input.IdempotencyKey, ReservationResult{Order: existing}); err != nil {
+				return ReservationResult{}, err
+			}
 			if err := tx.Commit(ctx); err != nil {
 				return ReservationResult{}, err
 			}
@@ -72,6 +95,9 @@ func (repository *PostgresRepository) ReserveTicket(ctx context.Context, input T
 		return ReservationResult{}, err
 	}
 	if err := insertOrderCreatedEvent(ctx, tx, created, projectedTicket); err != nil {
+		return ReservationResult{}, err
+	}
+	if err := idempotency.Complete(ctx, tx, input.UserID, "create_order", input.IdempotencyKey, ReservationResult{Created: true, Order: created}); err != nil {
 		return ReservationResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
