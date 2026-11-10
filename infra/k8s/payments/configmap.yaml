@@ -5,6 +5,6 @@ metadata:
 data:
   GRPC_PORT: "50054"
   METRICS_PORT: "9090"
-  NATS_URL: "nats://host.docker.internal:4222"
+  NATS_URL: "nats://nats:4222"
   PAYMENT_PROCESSOR_OUTCOME: "success"
   PAYMENT_PROCESSOR_RANDOM_FAILURES: "false"

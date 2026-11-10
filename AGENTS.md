@@ -48,8 +48,8 @@ Implemented foundations:
 
 Local Kubernetes manifests in `infra/k8s` cover the API gateway, identity, tickets,
 orders, payments, and expiration, plus separate PostgreSQL Deployments, internal
-Services, and PVCs for identity, tickets, orders, and payments. NATS, Redis, SMTP,
-and observability infrastructure remain external. See `infra/k8s/README.md` for
+Services, and PVCs for identity, tickets, orders, and payments. NATS JetStream runs as a single persistent Deployment with an internal Service.
+Redis, SMTP, and observability infrastructure remain external. See `infra/k8s/README.md` for
 setup.
 
 Planned but not implemented: GraphQL, Kubernetes manifests for the remaining

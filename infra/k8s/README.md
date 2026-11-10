@@ -1,9 +1,9 @@
 # Local Kubernetes
 
 These manifests deploy Tickets, Identity, Orders, Payments, Expiration, and the
-API Gateway, plus their four PostgreSQL databases, to a local Kubernetes cluster.
+API Gateway, plus NATS JetStream and their four PostgreSQL databases, to a local Kubernetes cluster.
 Each workload has one replica and an internal ClusterIP Service. Use the same
-namespace for all workloads. NATS JetStream, Redis, SMTP, ingress, and
+namespace for all workloads. Redis, SMTP, ingress, and
 observability backends are supplied separately.
 
 ## Build and load images
@@ -42,11 +42,11 @@ their migration init containers continue reading `DATABASE_URL` from that Secret
 
 | Workload | External dependencies | Example host ports |
 | --- | --- | --- |
-| Tickets | NATS JetStream | `4222` |
+| Tickets | None | — |
 | Identity | SMTP | `1025` |
-| Orders | NATS JetStream | `4222` |
-| Payments | NATS JetStream | `4222` |
-| Expiration | NATS JetStream, its own Redis data | `4222`, `6379` |
+| Orders | None | — |
+| Payments | None | — |
+| Expiration | Its own Redis data | `6379` |
 | API Gateway | Backend Kubernetes Services | No external persistence |
 
 Examples use `host.docker.internal` for host dependencies on Docker Desktop.
@@ -60,8 +60,8 @@ PostgreSQL connections use the same-namespace Services `identity-db`, `tickets-d
 `orders-db`, and `payments-db`, all on port `5432`. These databases are separate
 from Compose databases; no existing data is imported.
 
-Configure `NATS_URL` in Tickets, Orders, Payments, and Expiration for a
-JetStream-enabled server. Set Identity's `SMTP_HOST`, `SMTP_PORT`, and
+Tickets, Orders, Payments, and Expiration use `NATS_URL=nats://nats:4222`
+for the same-namespace NATS Service. Set Identity's `SMTP_HOST`, `SMTP_PORT`, and
 `SMTP_FROM` for its existing unauthenticated development SMTP transport. Set
 Expiration's `REDIS_URL` in its Secret, including credentials if needed.
 
@@ -107,6 +107,9 @@ before applying application manifests:
 for service in tickets identity orders payments expiration; do
   kubectl apply -f "/tmp/$service-secret.yaml"
 done
+
+kubectl apply -f infra/k8s/nats
+kubectl rollout status deployment/nats --timeout=600s
 
 kubectl apply -f infra/k8s/identity-db
 kubectl apply -f infra/k8s/tickets-db
@@ -253,6 +256,48 @@ After editing a ConfigMap or Secret, apply it and restart its Deployment to load
 new values. Migrations rerun when a pod is recreated; restarting only the
 application container does not rerun a completed init container.
 
-Concert Assistant and the remaining infrastructure manifests (including NATS,
-Redis, SMTP, ingress, and observability backends) remain deferred. Existing
+Concert Assistant and the remaining infrastructure manifests (including Redis, SMTP, ingress, and observability backends) remain deferred. Existing
 Compose workflows remain available independently.
+
+## NATS JetStream storage and checks
+
+NATS uses one replica with Recreate updates and `nats:2.11-alpine`, matching
+Compose. JetStream stores data at `/data` on the separate `1Gi` ReadWriteOnce
+`nats-data` PVC using the default storage class. Retain the PVC to preserve
+messages across pod replacement; deleting it may delete the data. This local
+server has no authentication or TLS and is exposed only inside the cluster.
+Applications continue to create their own streams and consumers.
+
+Startup and readiness probes require JetStream health; liveness checks server
+health without checking individual streams or consumers. Startup allows five
+minutes. Inspect and forward the internal ports with:
+
+```sh
+kubectl get pods,pvc -l app.kubernetes.io/name=nats
+kubectl get pvc nats-data
+kubectl logs deployment/nats
+kubectl get endpointslices -l kubernetes.io/service-name=nats
+kubectl port-forward service/nats 4222:4222 8222:8222
+```
+
+In another terminal, verify health and persistence with the NATS CLI installed:
+
+```sh
+curl --fail 'http://localhost:8222/healthz?js-enabled-only=true'
+nats --server nats://localhost:4222 stream add K8S_PERSISTENCE_CHECK --subjects k8s.persistence.check --storage file --replicas 1 --defaults
+nats --server nats://localhost:4222 pub k8s.persistence.check marker
+kubectl rollout restart deployment/nats
+kubectl rollout status deployment/nats --timeout=600s
+```
+
+Restart port-forwarding after the pod is replaced, then verify the marker and
+remove the temporary stream:
+
+```sh
+nats --server nats://localhost:4222 stream get K8S_PERSISTENCE_CHECK 1
+nats --server nats://localhost:4222 stream rm K8S_PERSISTENCE_CHECK --force
+```
+
+After applying the updated application ConfigMaps to an existing installation,
+restart Tickets, Orders, Payments, and Expiration and check their logs for NATS
+connections. No Compose broker data is imported.

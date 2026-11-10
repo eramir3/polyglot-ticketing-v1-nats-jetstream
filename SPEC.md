@@ -264,7 +264,10 @@ have a separate `postgres:17-alpine` Deployment and internal database Service on
 port `5432`, with a `1Gi` ReadWriteOnce PVC using the default storage class.
 Database Deployments use one replica and Recreate updates; their owning service
 Secrets supply `POSTGRES_PASSWORD` and matching application `DATABASE_URL` values.
-NATS JetStream, Redis, and SMTP remain external. Access the gateway and databases
+NATS JetStream runs in a single-replica `nats:2.11-alpine` Deployment with Recreate
+updates, a `1Gi` ReadWriteOnce PVC at `/data`, and an internal `nats` Service
+on client port `4222` and monitoring port `8222`. Tickets, Orders, Payments, and
+Expiration connect to `nats://nats:4222`. Redis and SMTP remain external. Access the gateway and databases
 locally through port-forwarding. Concert Assistant, remaining infrastructure
 manifests, and Kubernetes controllers remain deferred. See
 [`infra/k8s/README.md`](infra/k8s/README.md) for setup and limitations.
