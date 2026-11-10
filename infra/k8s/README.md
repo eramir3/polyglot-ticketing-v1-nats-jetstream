@@ -74,62 +74,113 @@ is omitted.
 
 ## Create Secrets and deploy
 
-Copy templates outside the repository:
+Keep descriptive script names; the numbered steps below show setup order.
+
+### 1. Prepare local Secret files
+
+Generate populated Secret files outside the repository (requires `openssl`):
 
 ```sh
-for service in tickets identity orders payments expiration; do
-  cp "infra/k8s/$service/examples/secret.example.yaml" "/tmp/$service-secret.yaml"
-done
+make k8s-prepare-secrets
 ```
 
-Set each database Secret's `POSTGRES_PASSWORD` to the raw password and put the
-same password, URL-encoded, into `DATABASE_URL`. Keep the database Service names
-and port `5432` from the examples. Set Expiration's `REDIS_URL` to `redis://redis:6379`
-and a random `BETTER_AUTH_SECRET` at least 32 characters long. If reusing a Secret
+This creates `/tmp/k8s-polyglot-ticketing-secrets` with mode `700` and five
+Secret files with mode `600`. For newly created files, it runs `openssl rand -hex 32`
+once and uses the same 64-character hex value for all four database passwords,
+their matching database URLs, and Identity's `BETTER_AUTH_SECRET`. Hex values
+need no additional URL encoding. Expiration keeps `REDIS_URL=redis://redis:6379`.
+Credentials are written only to the files, not printed. No resources are applied
+to the cluster.
+
+Existing files are preserved, so rerunning the command does not overwrite
+credentials or fill placeholders in existing copies. If only some files are
+missing, those new files share a fresh value; existing files keep their own values.
+
+Override the destination with `make k8s-prepare-secrets K8S_SECRETS_DIR=/your/private/path`.
+The script can also be invoked from any directory with
+`bash /path/to/repository/scripts/k8s/prepare-secrets.sh`; set `K8S_SECRETS_DIR`
+in the environment to override its destination. Symlink destinations and Secret
+files are rejected. Use the same directory in the apply commands below if overridden.
+
+For manually edited files, keep each database Secret's `POSTGRES_PASSWORD` and
+the URL-encoded password in `DATABASE_URL` consistent. Keep the database Service
+names and port `5432` from the examples, Expiration's `REDIS_URL` as
+`redis://redis:6379`, and Identity's `BETTER_AUTH_SECRET` at least 32 characters
+long. If reusing a Secret
 copy from the earlier external-database setup, add `POSTGRES_PASSWORD` and update
 its `DATABASE_URL` before applying it. Do not commit credentials.
 
-Apply Secrets first, then the database manifests, and wait for all databases
-before applying application manifests:
+### 2. Apply Secrets to the application namespace
+
+Use `polyglot-ticketing` for the application namespace in these examples. If it
+does not exist yet, create it:
+
+```sh
+kubectl create namespace polyglot-ticketing
+```
+
+Preparing files does not create Secrets in Kubernetes. Apply the populated files
+to the namespace using the current kubectl context:
 
 ```sh
 for service in tickets identity orders payments expiration; do
-  kubectl apply -f "/tmp/$service-secret.yaml"
+  kubectl -n polyglot-ticketing apply -f "/tmp/k8s-polyglot-ticketing-secrets/$service-secret.yaml"
 done
+```
 
-kubectl apply -f infra/k8s/redis
-kubectl apply -f infra/k8s/mailpit
-kubectl rollout status deployment/redis --timeout=600s
-kubectl rollout status deployment/mailpit --timeout=600s
+### 3. Verify cluster Secrets
 
-kubectl apply -f infra/k8s/nats
-kubectl rollout status deployment/nats --timeout=600s
+```sh
+make k8s-list-secrets
+```
 
-kubectl apply -f infra/k8s/identity-db
-kubectl apply -f infra/k8s/tickets-db
-kubectl apply -f infra/k8s/orders-db
-kubectl apply -f infra/k8s/payments-db
+This runs `kubectl get secrets -n polyglot-ticketing`, showing the standard summary
+table without Secret values. It can be repeated anytime; it does not create a
+namespace or apply resources. Kubectl errors are passed through by the script.
+Override the namespace with `make k8s-list-secrets K8S_NAMESPACE=another-namespace`.
+For direct invocation, run `bash scripts/k8s/list-secrets.sh`; it also accepts
+`K8S_NAMESPACE` from the environment and uses the current kubectl context.
+
+### 4. Deploy dependencies and applications
+
+Use the same namespace for dependencies and applications. Wait for databases
+before applying application manifests:
+
+```sh
+kubectl -n polyglot-ticketing apply -f infra/k8s/redis
+kubectl -n polyglot-ticketing apply -f infra/k8s/mailpit
+kubectl -n polyglot-ticketing rollout status deployment/redis --timeout=600s
+kubectl -n polyglot-ticketing rollout status deployment/mailpit --timeout=600s
+
+kubectl -n polyglot-ticketing apply -f infra/k8s/nats
+kubectl -n polyglot-ticketing rollout status deployment/nats --timeout=600s
+
+kubectl -n polyglot-ticketing apply -f infra/k8s/identity-db
+kubectl -n polyglot-ticketing apply -f infra/k8s/tickets-db
+kubectl -n polyglot-ticketing apply -f infra/k8s/orders-db
+kubectl -n polyglot-ticketing apply -f infra/k8s/payments-db
 
 for database in identity-db tickets-db orders-db payments-db; do
-  kubectl rollout status "deployment/$database" --timeout=600s
+  kubectl -n polyglot-ticketing rollout status "deployment/$database" --timeout=600s
 done
 
-kubectl apply -f infra/k8s/tickets
-kubectl apply -f infra/k8s/identity
-kubectl apply -f infra/k8s/orders
-kubectl apply -f infra/k8s/payments
-kubectl apply -f infra/k8s/expiration
-kubectl apply -f infra/k8s/api-gateway
+kubectl -n polyglot-ticketing apply -f infra/k8s/tickets
+kubectl -n polyglot-ticketing apply -f infra/k8s/identity
+kubectl -n polyglot-ticketing apply -f infra/k8s/orders
+kubectl -n polyglot-ticketing apply -f infra/k8s/payments
+kubectl -n polyglot-ticketing apply -f infra/k8s/expiration
+kubectl -n polyglot-ticketing apply -f infra/k8s/api-gateway
 
 for service in tickets identity orders payments expiration api-gateway; do
-  kubectl rollout status "deployment/$service" --timeout=600s
+  kubectl -n polyglot-ticketing rollout status "deployment/$service" --timeout=600s
 done
 ```
 
 Directory application is nonrecursive and excludes example Secrets. Avoid `-R`,
-which would apply placeholders. Manifests are namespace-neutral; use the same
-`-n <namespace>` on every command if selecting a namespace other than the current
-one.
+which would apply placeholders. Manifests are namespace-neutral; replace
+`polyglot-ticketing` consistently if choosing another namespace. Subsequent
+namespace-scoped kubectl examples omit the namespace for brevity; add
+`-n polyglot-ticketing` (or your chosen namespace) when running them.
 
 Tickets, Identity, Orders, and Payments run existing migration commands in init
 containers before their application starts. Up-to-date schemas succeed;
