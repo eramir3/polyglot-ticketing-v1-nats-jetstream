@@ -1,4 +1,5 @@
 FLOCI_COMPOSE := docker compose -f infra/floci/docker-compose.yml
+FLOCI_TERRAFORM := terraform -chdir=infra/terraform/environments/local
 
 .PHONY: floci-up floci-down floci-logs floci-ps floci-health
 
@@ -23,3 +24,23 @@ floci-ps: ## Show standalone Floci status.
 
 floci-health: ## Check the local Floci health endpoint.
 	curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4566/_floci/health
+
+.PHONY: floci-eks-init floci-eks-plan floci-eks-apply floci-eks-kubeconfig floci-eks-verify floci-eks-destroy
+
+floci-eks-init: ## Initialize the pinned Terraform provider for local Floci.
+	$(FLOCI_TERRAFORM) init
+
+floci-eks-plan: ## Review local EKS infrastructure changes against Floci.
+	$(FLOCI_TERRAFORM) plan
+
+floci-eks-apply: ## Provision the local EKS foundation through Floci.
+	$(FLOCI_TERRAFORM) apply
+
+floci-eks-kubeconfig: ## Generate isolated local Kubernetes credentials from Terraform outputs.
+	python3 scripts/floci/configure-kubeconfig.py
+
+floci-eks-verify: ## Verify the local node, DNS, PVC binding, and data persistence.
+	python3 scripts/floci/verify-cluster.py
+
+floci-eks-destroy: ## Destroy Terraform-managed local EKS resources; retain Floci and retained data volumes.
+	$(FLOCI_TERRAFORM) destroy

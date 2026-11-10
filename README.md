@@ -232,6 +232,8 @@ An optional application overlay enables tracing; see `infra/k8s/README.md`.
 
 ## Local AWS emulation
 
-Run `make floci-up` to start the standalone Floci runtime for future Terraform/EKS
-work. See [Floci setup](infra/floci/README.md) for requirements and commands.
-Cluster provisioning and application deployment are not included yet.
+Run `make floci-up` to start the standalone Floci runtime. See
+[Floci setup](infra/floci/README.md) for requirements and runtime commands, and
+the [Terraform/EKS guide](infra/terraform/README.md) to provision and verify the
+isolated local cluster. Application image loading and deployment are deferred;
+the existing Minikube workflow remains independent.

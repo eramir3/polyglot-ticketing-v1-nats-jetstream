@@ -724,6 +724,22 @@ An optional application overlay enables tracing; see `infra/k8s/README.md`.
 ## Local AWS emulation foundation
 
 An independent Floci 2.4.0 Compose project provides a persistent local AWS API
-on `127.0.0.1:4566`, managed by the `make floci-*` commands. Terraform/EKS
-provisioning remains planned. Application dependencies retain their existing
-implementations. See [Floci setup](infra/floci/README.md).
+on `127.0.0.1:4566`, managed by the `make floci-*` commands. A local-only Terraform
+root provisions an emulated VPC, two subnets and route associations, cluster and
+worker IAM roles/policies, a local Kubernetes operator user/key, an EKS cluster,
+and one node-group declaration. Floci runs one shared k3s node with the local-path
+default StorageClass. Terraform declares Kubernetes minor `1.34`; Floci's runtime
+image is pinned to `rancher/k3s:v1.34.2-k3s1`, which includes an upstream networking
+startup fix. Controlled node-IP changes still reproduced the startup failure with
+both this patch and `v1.34.13+k3s1`; Docker address reassignment remains a known
+compatibility limitation. This does not establish AWS-equivalent scaling, networking,
+or IAM enforcement. Kubernetes access uses an isolated ignored kubeconfig with
+certificate verification and Floci-issued credentials. Local Terraform state
+also contains those credentials and must remain private.
+
+The `make floci-eks-*` commands initialize, plan, apply, configure access, verify
+node readiness/DNS/PVC persistence, and destroy this foundation. They deploy no
+application services. PostgreSQL, Redis, NATS JetStream, Mailpit, and the six core
+services remain self-hosted; application image loading and deployment to Floci
+remain deferred. Existing Minikube scripts and manifests remain unchanged.
+See [Floci setup](infra/floci/README.md) and the [Terraform guide](infra/terraform/README.md).
