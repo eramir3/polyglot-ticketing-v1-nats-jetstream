@@ -141,29 +141,38 @@ Override the namespace with `make k8s-list-secrets K8S_NAMESPACE=another-namespa
 For direct invocation, run `bash scripts/k8s/list-secrets.sh`; it also accepts
 `K8S_NAMESPACE` from the environment and uses the current kubectl context.
 
-### 4. Deploy dependencies and applications
+### 4. Deploy dependencies
 
-Use the same namespace for dependencies and applications. Wait for databases
-before applying application manifests:
+Deploy Redis, Mailpit, NATS, and the four PostgreSQL databases:
 
 ```sh
-kubectl -n polyglot-ticketing apply -f infra/k8s/redis
-kubectl -n polyglot-ticketing apply -f infra/k8s/mailpit
-kubectl -n polyglot-ticketing rollout status deployment/redis --timeout=600s
-kubectl -n polyglot-ticketing rollout status deployment/mailpit --timeout=600s
+make k8s-deploy-dependencies
+```
 
-kubectl -n polyglot-ticketing apply -f infra/k8s/nats
-kubectl -n polyglot-ticketing rollout status deployment/nats --timeout=600s
+The command uses the current kubectl context and defaults to namespace
+`polyglot-ticketing`. Override it with
+`make k8s-deploy-dependencies K8S_NAMESPACE=another-namespace`. Direct invocation
+with `bash /path/to/repository/scripts/k8s/deploy-dependencies.sh` works from any
+directory and accepts `K8S_NAMESPACE` from the environment.
 
-kubectl -n polyglot-ticketing apply -f infra/k8s/identity-db
-kubectl -n polyglot-ticketing apply -f infra/k8s/tickets-db
-kubectl -n polyglot-ticketing apply -f infra/k8s/orders-db
-kubectl -n polyglot-ticketing apply -f infra/k8s/payments-db
+Before applying resources, it checks that the namespace and `identity-secret`,
+`tickets-secret`, `orders-secret`, and `payments-secret` exist without displaying
+Secret values. It applies the existing manifests nonrecursively in three groups:
+Redis and Mailpit, NATS, then all four databases. Each group's Deployments must
+finish rolling out before the next group starts, with a timeout of 600 seconds
+per Deployment.
 
-for database in identity-db tickets-db orders-db payments-db; do
-  kubectl -n polyglot-ticketing rollout status "deployment/$database" --timeout=600s
-done
+The command stops on the first error and returns a nonzero status. It leaves
+already-applied resources in place; fix the cause and rerun the command to apply
+the manifests again. It does not create namespaces, generate or apply Secrets,
+deploy applications, or configure Gateway routing. The default StorageClass must
+be able to provision the PVCs, and the cluster must be able to pull the images.
 
+### 5. Deploy applications
+
+After dependency deployment succeeds, deploy applications into the same namespace:
+
+```sh
 kubectl -n polyglot-ticketing apply -f infra/k8s/tickets
 kubectl -n polyglot-ticketing apply -f infra/k8s/identity
 kubectl -n polyglot-ticketing apply -f infra/k8s/orders
