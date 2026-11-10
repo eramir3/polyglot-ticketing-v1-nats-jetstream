@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+data:
+  NODE_ENV: "development"
+  PORT: "3000"
+  METRICS_PORT: "9090"
+  IDENTITY_GRPC_URL: "identity:50051"
+  TICKETS_GRPC_URL: "tickets:50052"
+  ORDERS_GRPC_URL: "orders:50053"
+  PAYMENTS_GRPC_URL: "payments:50054"
+  TICKETING_USER_APP_ORIGIN: "http://localhost:3001"

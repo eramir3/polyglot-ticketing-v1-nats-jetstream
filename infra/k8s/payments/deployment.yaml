@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payments
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payments
+    spec:
+      initContainers:
+        - name: migrate
+          image: payments:dev
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command: ["payments-migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: payments-secret
+                  key: DATABASE_URL
+      containers:
+        - name: payments
+          image: payments:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: payments-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: payments-secret
+                  key: DATABASE_URL
+          ports:
+            - name: grpc
+              containerPort: 50054
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10

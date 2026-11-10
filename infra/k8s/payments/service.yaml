@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: payments
+  ports:
+    - name: grpc
+      port: 50054
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics

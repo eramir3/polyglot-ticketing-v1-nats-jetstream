@@ -46,8 +46,12 @@ Implemented foundations:
   inbox is available on `localhost:8025`, Grafana on `localhost:3002`, and the
   Prometheus UI on `localhost:9090`.
 
-Planned but not implemented: Kubernetes manifests, GraphQL, and a Kubernetes
-Gateway API controller.
+Local Kubernetes application manifests in `infra/k8s` cover the API gateway,
+identity, tickets, orders, payments, and expiration, with external infrastructure
+dependencies. See `infra/k8s/README.md` for setup.
+
+Planned but not implemented: GraphQL, Kubernetes manifests for infrastructure and
+Concert Assistant, and a Kubernetes Gateway API controller.
 
 Deferred, low-priority work: replace the Payments simulated outcome worker with
 a real provider; publish an `OrderCompleted` event or expose payment status

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expiration
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: expiration
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: expiration
+    spec:
+      containers:
+        - name: expiration
+          image: expiration:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: expiration-config
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: expiration-secret
+                  key: REDIS_URL
+          ports:
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 10

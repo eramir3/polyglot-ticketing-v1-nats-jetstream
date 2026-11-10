@@ -255,7 +255,15 @@ send another message.
 | Backend service to backend service | NATS JetStream            | Ticket, order, and expiration events    |
 
 Kubernetes Gateway API will provide ingress and routing in a later deployment
-phase. No Kubernetes controller or manifests are implemented yet.
+phase. Local Kubernetes manifests in `infra/k8s` cover Tickets, Identity, Orders,
+Payments, Expiration, and the API Gateway. Each runs one replica with an internal
+ClusterIP Service; Identity, Tickets, Orders, and Payments run migrations in init
+containers. The gateway exposes HTTP internally, backend APIs remain gRPC-only,
+and Expiration exposes only metrics. PostgreSQL, NATS JetStream, Redis, and SMTP
+are supplied externally. Access the gateway locally through port-forwarding.
+Concert Assistant, infrastructure manifests, and Kubernetes controllers remain
+deferred. See
+[`infra/k8s/README.md`](infra/k8s/README.md) for setup and limitations.
 
 ## Protobuf And Validation
 

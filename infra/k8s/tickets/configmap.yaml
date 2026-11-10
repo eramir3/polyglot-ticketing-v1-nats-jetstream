@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tickets-config
+data:
+  GRPC_PORT: "50052"
+  METRICS_PORT: "9090"
+  NATS_URL: "nats://host.docker.internal:4222"

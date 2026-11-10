@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tickets
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tickets
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tickets
+    spec:
+      initContainers:
+        - name: migrate
+          image: tickets:dev
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command: [tickets-migrate]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tickets-secret
+                  key: DATABASE_URL
+      containers:
+        - name: tickets
+          image: tickets:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: tickets-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tickets-secret
+                  key: DATABASE_URL
+          ports:
+            - name: grpc
+              containerPort: 50052
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
