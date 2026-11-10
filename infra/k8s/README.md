@@ -7,6 +7,154 @@ namespace for all workloads. Redis and Mailpit run in-cluster. Optional Gateway
 API routing reuses a separately installed Traefik controller; observability
 backends are supplied separately.
 
+## Choose Minikube or Floci
+
+All core deployment commands accept `K8S_TARGET=minikube|floci`. Minikube remains
+its default, with the existing `MINIKUBE_PROFILE` context check. The scripts
+never change the default kubectl context. Commands that contact Minikube now pin
+that profile with `--context`; a mismatched current context is rejected.
+
+For Floci, first provision the foundation and generate its isolated kubeconfig
+as described in the [Terraform guide](../terraform/README.md). The application
+commands read only the cluster name and endpoint from local Terraform outputs,
+validate `infra/terraform/environments/local/kubeconfig.json` against them, and
+always pass its path and context explicitly to kubectl. They require Terraform,
+Python 3, kubectl, and the AWS CLI used by the kubeconfig's authentication plugin.
+They wait for Kubernetes API/node readiness, and never apply or destroy Terraform.
+
+### Deploy the complete core stack to Floci
+
+Run these commands from the repository root, in order:
+
+```sh
+make k8s-prepare-secrets K8S_TARGET=floci
+make k8s-apply-secrets K8S_TARGET=floci
+make k8s-prepare-images K8S_TARGET=floci
+make k8s-deploy-dependencies K8S_TARGET=floci
+make k8s-deploy-apps K8S_TARGET=floci
+make k8s-port-forward-api K8S_TARGET=floci
+```
+
+The default namespace is `polyglot-ticketing` in either cluster. Floci Secret files
+are stored separately at `/tmp/k8s-polyglot-ticketing-floci-secrets`, while Minikube
+keeps `/tmp/k8s-polyglot-ticketing-secrets`. Override `K8S_SECRETS_DIR` consistently
+for preparation and application. Existing files are preserved on reruns; retain
+them when retaining database PVCs. Compose's root `.env` is not loaded by these
+commands. All dependencies use their in-cluster Service addresses.
+
+`k8s-apply-secrets` checks every file before creating the namespace or applying
+any Secrets. It rejects missing files, symlinks, placeholders, incorrect names or
+namespaces, missing values, mismatched database passwords/URLs, noninternal
+connection addresses, and a Better Auth secret shorter than 32 characters. It
+uses kubectl client dry runs to parse files, without displaying their values.
+Cluster readiness and discovery are read-only prerequisites. After validation,
+namespace creation is idempotent, and Secrets are applied to the chosen namespace.
+A server error can leave a partially applied group; correct the cause and rerun.
+Changing Secrets does not rotate passwords in already-initialized databases.
+
+Floci image preparation generates contracts and builds the same six `:dev` images
+using the existing Dockerfiles. It selects the single node's `amd64` or `arm64`
+platform, discovers exactly one running EKS container by Floci's service and
+cluster labels, and imports `docker save` archives with
+`docker exec -i <container> ctr --namespace k8s.io images import --platform <platform> -`.
+All builds finish before any image is imported. It checks image architecture and
+all six imported `docker.io/library/<service>:dev` references. No registry, ECR,
+or image-pull Secret is added; public dependency images are pulled by k3s.
+Builds require Docker, make, pnpm, and installed workspace dependencies.
+
+Dependency deployment waits for Redis/Mailpit, then NATS, then four databases.
+Application deployment waits for those seven workloads and all five Secrets,
+applies the six existing application Kustomizations, and waits for their
+Deployments. Four existing migration init containers run before application
+startup. Errors stop the workflow and retain resources for diagnosis and reruns.
+After rebuilding/importing existing tags, explicitly restart affected Deployments;
+reapplying unchanged manifests does not replace running pods.
+
+Floci's default `local-path` StorageClass satisfies all six existing `1Gi` PVCs:
+four databases, NATS and Redis. `WaitForFirstConsumer` means a claim may stay
+Pending until its consuming pod is scheduled. Data is stored under the k3s named
+volume at `/var/lib/rancher/k3s/storage`, rather than AWS EBS. Retain the PVCs and
+volume; the StorageClass's `Delete` reclaim policy can remove data on PVC deletion.
+Mailpit's inbox remains ephemeral. No existing Compose or Minikube data is imported.
+
+### Access and verify Floci
+
+`k8s-port-forward-api` forwards `localhost:3000` directly to the gateway Service
+in the foreground. Stop it with Ctrl+C. In another terminal, expose Mailpit:
+
+```sh
+kubectl --kubeconfig=infra/terraform/environments/local/kubeconfig.json \
+  -n polyglot-ticketing port-forward service/mailpit 8025:8025
+```
+
+Choose free host ports if Compose or another cluster already uses these ports.
+Changing gateway port 3000 also requires updating Identity's public authentication
+and verification URL configuration. Direct forwarding does not provide the optional
+Traefik route filtering; the gateway's metrics stay on their separate port 9090.
+Floci has no installed Traefik or Gateway API CRDs. The existing
+`k8s-deploy-gateway` and `k8s-port-forward-gateway` commands remain Minikube-only
+and reject `K8S_TARGET=floci` with instructions to use direct forwarding.
+
+Check the deployment without switching contexts:
+
+```sh
+kubectl --kubeconfig=infra/terraform/environments/local/kubeconfig.json \
+  -n polyglot-ticketing get deployments,pods,services,pvc
+kubectl --kubeconfig=infra/terraform/environments/local/kubeconfig.json \
+  -n polyglot-ticketing get endpointslices
+kubectl --kubeconfig=infra/terraform/environments/local/kubeconfig.json \
+  -n polyglot-ticketing logs deployment/identity -c migrate
+kubectl --kubeconfig=infra/terraform/environments/local/kubeconfig.json \
+  -n polyglot-ticketing exec deployment/redis -- redis-cli ping
+curl --fail http://localhost:3000/api/tickets
+```
+
+Expect 13 available Deployments, six Bound PVCs, four successful migration init
+containers, Redis `PONG`, and HTTP 200 ticket-list JSON. Inspect NATS JetStream
+health through a monitoring port-forward and use the persistence checks below,
+adding the explicit kubeconfig and namespace to every kubectl command. Verify
+signup, the Mailpit verification link, sign-in, ticket creation, order reservation
+and simulated payment; an unpaid reservation should expire after 15 minutes.
+Pod readiness alone does not prove these asynchronous flows work.
+
+The single node currently models 2 CPUs and 8 GiB; public image pulls, Docker disk
+space and other local workloads can affect startup. Node tracing may log exporter
+connection errors without the optional collector; observability installation is
+separate. Concert Assistant and optional tools are not part of this core stack.
+
+Floci can still fail after Docker reassigns its node IP, and node-password warnings
+can recur after runtime replacement. Application deployment does not repair these
+known [runtime limitations](../terraform/README.md#remaining-restart-limitation).
+Do not delete PVCs or recreate Terraform infrastructure as a deployment retry.
+
+Run `make k8s-test-scripts` for the deployment command tests. They use recording
+stubs and contact neither Docker nor Kubernetes.
+
+### Floci validation record (2026-11-10)
+
+- All 13 deployment-script tests passed using recording stubs, including default
+  Minikube behavior, profile guards, explicit Floci targeting, failed builds/imports,
+  Secret preservation and direct port-forwarding.
+- All six existing Dockerfiles built and their images imported into Floci's k3s
+  containerd. The Node development images took roughly 100 seconds each to import
+  on the inspected local machine; a quiet import is not necessarily stalled.
+- All 13 Deployments became available, all six PVCs bound, and Identity, Tickets,
+  Orders and Payments migration init containers exited with code 0.
+- Authenticated database marker queries through all four database Services and
+  Redis AOF/NATS file-backed markers survived individual pod replacements. Marker
+  tables, keys and the temporary NATS stream were removed afterward.
+- Public ticket listing, signup, the Mailpit verification link, gateway verification,
+  sign-in/session access, logout, ticket creation, reservation, simulated payment and
+  asynchronous order completion succeeded. An unpaid order canceled after the
+  unchanged 15-minute delay through Redis/BullMQ, Expiration, NATS and Orders.
+  The direct Make port-forward command
+  served `localhost:3000/api/tickets`; its validation listener was stopped afterward.
+- After Minikube became available, the default `make k8s-list-secrets` command
+  succeeded against its existing namespace; all 13 existing Deployments were
+  available and its six PVCs were Bound in the final snapshot.
+  The default kubectl context remained `minikube`; no Minikube resources were
+  changed by this validation. Terraform resources and application manifests were unchanged.
+
 ## Build and load images
 
 For minikube, start your cluster and select its kubectl context, then run:
@@ -137,8 +285,10 @@ does not exist yet, create it:
 kubectl create namespace polyglot-ticketing
 ```
 
-Preparing files does not create Secrets in Kubernetes. Apply the populated files
-to the namespace using the current kubectl context:
+Preparing files does not create Secrets in Kubernetes. The new
+`make k8s-apply-secrets` command validates all five files and creates the namespace
+idempotently before applying them. The following manual alternative uses the
+current kubectl context:
 
 ```sh
 for service in tickets identity orders payments expiration; do
@@ -152,7 +302,7 @@ done
 make k8s-list-secrets
 ```
 
-This runs `kubectl get secrets -n polyglot-ticketing`, showing the standard summary
+This targets the selected cluster and runs `kubectl get secrets -n polyglot-ticketing`, showing the standard summary
 table without Secret values. It can be repeated anytime; it does not create a
 namespace or apply resources. Kubectl errors are passed through by the script.
 Override the namespace with `make k8s-list-secrets K8S_NAMESPACE=another-namespace`.

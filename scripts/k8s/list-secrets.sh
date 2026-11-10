@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-exec kubectl get secrets -n "${K8S_NAMESPACE:-polyglot-ticketing}"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+k8s_init
+k8s_kubectl get secrets -n "$namespace"

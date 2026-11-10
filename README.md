@@ -235,5 +235,6 @@ An optional application overlay enables tracing; see `infra/k8s/README.md`.
 Run `make floci-up` to start the standalone Floci runtime. See
 [Floci setup](infra/floci/README.md) for requirements and runtime commands, and
 the [Terraform/EKS guide](infra/terraform/README.md) to provision and verify the
-isolated local cluster. Application image loading and deployment are deferred;
-the existing Minikube workflow remains independent.
+isolated local cluster. The [Kubernetes guide](infra/k8s/README.md#choose-minikube-or-floci)
+documents application deployment with `K8S_TARGET=floci`; Minikube remains the
+default. Both targets reuse the same manifests and keep all dependencies self-hosted.

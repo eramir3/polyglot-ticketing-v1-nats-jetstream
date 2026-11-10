@@ -142,11 +142,12 @@ Add-on declarations are metadata, not controller installation. Access policies
 and security settings do not establish AWS-equivalent enforcement. IAM policy
 enforcement is disabled in the default runtime.
 
-Application deployment is the next phase: PostgreSQL, Redis, NATS JetStream,
-Mailpit, and all six services remain self-hosted. Existing image preparation
-uses `minikube image load`, and application/gateway scripts guard a Minikube
-context. Do not run those scripts against this cluster. A separate image-loading
-and deployment workflow, plus optional routing and observability, remains deferred.
+Application deployment is separate from Terraform. The shared Kubernetes workflow
+supports `K8S_TARGET=floci` while retaining Minikube as its default. It imports local
+images into k3s containerd, applies existing manifests and uses direct gateway
+port-forwarding. PostgreSQL, Redis, NATS JetStream, Mailpit and all six services
+remain self-hosted. See the [application deployment guide](../k8s/README.md#choose-minikube-or-floci).
+Optional routing and observability remain separate.
 
 ## Validation record
 

@@ -52,4 +52,6 @@ for existing clusters; changing the setting does not upgrade a surviving child
 container automatically.
 A healthy Floci endpoint does not imply an EKS cluster exists or validate AWS
 production behavior. See the Terraform guide for access, verification, cleanup,
-and emulator limitations. Application image loading and deployment are deferred.
+and emulator limitations. For application image loading, Secrets, deployment and
+direct local access, use the [shared Kubernetes workflow](../k8s/README.md#choose-minikube-or-floci)
+with `K8S_TARGET=floci`. Minikube remains the default target.

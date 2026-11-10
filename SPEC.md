@@ -740,6 +740,15 @@ also contains those credentials and must remain private.
 The `make floci-eks-*` commands initialize, plan, apply, configure access, verify
 node readiness/DNS/PVC persistence, and destroy this foundation. They deploy no
 application services. PostgreSQL, Redis, NATS JetStream, Mailpit, and the six core
-services remain self-hosted; application image loading and deployment to Floci
-remain deferred. Existing Minikube scripts and manifests remain unchanged.
+services remain self-hosted. The shared Kubernetes scripts support
+`K8S_TARGET=minikube|floci`, defaulting to Minikube and preserving its profile
+checks and image loading. Floci commands pin the isolated kubeconfig and context,
+validate them against local Terraform outputs, and import the same six `:dev`
+images into k3s containerd. Both targets reuse existing application/dependency
+manifests and migration init containers. Secret preparation uses separate private
+local directories per target; an apply command validates all five files before
+creating the namespace and applying Secrets. Direct gateway port-forwarding
+provides Floci HTTP access without installing a routing controller. Optional
+Traefik commands remain Minikube-only. No infrastructure replacement or data
+migration is part of application deployment.
 See [Floci setup](infra/floci/README.md) and the [Terraform guide](infra/terraform/README.md).

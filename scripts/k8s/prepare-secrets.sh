@@ -2,17 +2,10 @@
 set -euo pipefail
 umask 077
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-destination="${K8S_SECRETS_DIR:-/tmp/k8s-polyglot-ticketing-secrets}"
-services=(identity tickets orders payments expiration)
-
-fail() {
-  printf 'Error: %s\n' "$1" >&2
-  exit 1
-}
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # Check every input before preparing any files.
-for service in "${services[@]}"; do
+for service in "${secret_services[@]}"; do
   template="$repo_root/infra/k8s/$service/examples/secret.example.yaml"
   [[ -f "$template" ]] || fail "Missing template: $template"
 done
@@ -21,22 +14,22 @@ done
 if [[ -e "$destination" && ! -d "$destination" ]]; then
   fail "Destination must be a directory: $destination"
 fi
-for service in "${services[@]}"; do
-  target="$destination/$service-secret.yaml"
-  [[ ! -L "$target" ]] || fail "Secret file must not be a symlink: $target"
-  if [[ -e "$target" && ! -f "$target" ]]; then
-    fail "Secret path must be a regular file: $target"
+for service in "${secret_services[@]}"; do
+  secret_path="$destination/$service-secret.yaml"
+  [[ ! -L "$secret_path" ]] || fail "Secret file must not be a symlink: $secret_path"
+  if [[ -e "$secret_path" && ! -f "$secret_path" ]]; then
+    fail "Secret path must be a regular file: $secret_path"
   fi
 done
 
 mkdir -p "$destination"
 chmod 700 "$destination"
 shared_secret=''
-for service in "${services[@]}"; do
-  target="$destination/$service-secret.yaml"
-  if [[ -e "$target" ]]; then
-    chmod 600 "$target"
-    printf 'Skipped existing file: %s\n' "$target"
+for service in "${secret_services[@]}"; do
+  secret_path="$destination/$service-secret.yaml"
+  if [[ -e "$secret_path" ]]; then
+    chmod 600 "$secret_path"
+    printf 'Skipped existing file: %s\n' "$secret_path"
   else
     if [[ -z "$shared_secret" ]]; then
       command -v openssl >/dev/null 2>&1 || fail "openssl is required to generate credentials."
@@ -47,9 +40,9 @@ for service in "${services[@]}"; do
       -e "s/REPLACE_WITH_URL_ENCODED_PASSWORD/$shared_secret/g" \
       -e "s/REPLACE_WITH_PASSWORD/$shared_secret/g" \
       -e "s/REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_32_CHARACTERS_LONG/$shared_secret/g" \
-      "$repo_root/infra/k8s/$service/examples/secret.example.yaml" > "$target")
-    chmod 600 "$target"
-    printf 'Created: %s\n' "$target"
+      "$repo_root/infra/k8s/$service/examples/secret.example.yaml" > "$secret_path")
+    chmod 600 "$secret_path"
+    printf 'Created: %s\n' "$secret_path"
   fi
 done
 
