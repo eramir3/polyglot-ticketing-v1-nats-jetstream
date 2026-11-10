@@ -53,7 +53,10 @@ Redis and Mailpit run in-cluster; observability infrastructure remains external.
 setup.
 
 Planned but not implemented: GraphQL, Kubernetes manifests for the remaining
-infrastructure and Concert Assistant, and a Kubernetes Gateway API controller.
+infrastructure and Concert Assistant, and installation of a Kubernetes Gateway API controller.
+Optional Gateway API routing manifests in `infra/k8s/gateway` reuse an existing
+Traefik controller and `traefik` GatewayClass to expose `/api` on localhost:3000
+through a port-forward to Traefik; see `infra/k8s/README.md`.
 
 Deferred, low-priority work: replace the Payments simulated outcome worker with
 a real provider; publish an `OrderCompleted` event or expose payment status

@@ -254,8 +254,10 @@ send another message.
 | API gateway to backend services    | gRPC                      | Identity, tickets, orders, and payments |
 | Backend service to backend service | NATS JetStream            | Ticket, order, and expiration events    |
 
-Kubernetes Gateway API will provide ingress and routing in a later deployment
-phase. Local Kubernetes manifests in `infra/k8s` cover Tickets, Identity, Orders,
+Optional Kubernetes Gateway API manifests in `infra/k8s/gateway` route
+`localhost` requests under `/api` to `api-gateway:3000` through an existing
+Traefik controller and `traefik` GatewayClass. Forward the Traefik HTTP Service
+port to localhost:3000 for local access; backend APIs and metrics stay internal. Local Kubernetes manifests in `infra/k8s` cover Tickets, Identity, Orders,
 Payments, Expiration, and the API Gateway. Each runs one replica with an internal
 ClusterIP Service; Identity, Tickets, Orders, and Payments run migrations in init
 containers. The gateway exposes HTTP internally, backend APIs remain gRPC-only,

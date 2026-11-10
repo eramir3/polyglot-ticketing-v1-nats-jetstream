@@ -3,8 +3,9 @@
 These manifests deploy Tickets, Identity, Orders, Payments, Expiration, and the
 API Gateway, plus NATS JetStream and their four PostgreSQL databases, to a local Kubernetes cluster.
 Each workload has one replica and an internal ClusterIP Service. Use the same
-namespace for all workloads. Redis and Mailpit run in-cluster. Ingress and
-observability backends are supplied separately.
+namespace for all workloads. Redis and Mailpit run in-cluster. Optional Gateway
+API routing reuses a separately installed Traefik controller; observability
+backends are supplied separately.
 
 ## Build and load images
 
@@ -227,8 +228,8 @@ external dependencies.
 
 To inspect another service's metrics, stop the gateway forward and run, for
 example, `kubectl port-forward service/expiration 9090:9090`, then fetch
-`/metrics`. Backend gRPC ports do not serve HTTP. No ingress, NodePort, or
-LoadBalancer is created here.
+`/metrics`. Backend gRPC ports do not serve HTTP. The application manifests create no Ingress, NodePort, or
+LoadBalancer. Optional Gateway API access is described below.
 
 Application TCP probes verify listener availability, not continued database,
 broker, Redis, or SMTP health. The five newer application workloads allow five minutes for startup before
@@ -249,8 +250,65 @@ After editing a ConfigMap or Secret, apply it and restart its Deployment to load
 new values. Migrations rerun when a pod is recreated; restarting only the
 application container does not rerun a completed init container.
 
-Concert Assistant and the remaining infrastructure manifests (including ingress and observability backends) remain deferred. Existing
+Concert Assistant and the remaining infrastructure manifests and controller installation remain deferred. Existing
 Compose workflows remain available independently.
+
+## Optional Gateway API access
+
+`infra/k8s/gateway` contains a Gateway and HTTPRoute using the stable v1 API.
+They reuse an existing Traefik controller and accepted `traefik` GatewayClass;
+they do not install or manage shared cluster infrastructure. The inspected local
+minikube setup uses Traefik v3.6.2, an HTTP entry point on port 80, and Service
+`traefik` in namespace `traefik`. The Gateway listener port must match that entry
+point. Check prerequisites before applying:
+
+```sh
+kubectl get crd gateways.gateway.networking.k8s.io httproutes.gateway.networking.k8s.io
+kubectl get gatewayclass traefik
+kubectl -n traefik get deployment traefik -o yaml
+kubectl -n traefik get service traefik
+```
+
+Deploy the application workloads first. Replace `<application-namespace>` with
+their namespace throughout these commands; the routing resources must share the API gateway Service's namespace:
+
+```sh
+kubectl -n <application-namespace> apply --server-side --dry-run=server -k infra/k8s/gateway
+kubectl -n <application-namespace> apply -k infra/k8s/gateway
+kubectl -n <application-namespace> get gateway ticketing-gateway -o yaml
+kubectl -n <application-namespace> get httproute ticketing-api -o yaml
+```
+
+Check Gateway `Accepted=True` and `Programmed=True`, and HTTPRoute parent
+conditions `Accepted=True` and `ResolvedRefs=True`. Stop any existing forward
+using local port 3000, then run:
+
+```sh
+kubectl -n traefik port-forward service/traefik 3000:80
+```
+
+This forwards to Traefik's proxy; the Gateway resource itself does not bind a
+localhost port. A pending LoadBalancer external address does not prevent this
+workflow. Visit `http://localhost:3000/api/tickets`. Only hostname `localhost`
+and path prefix `/api` route to `api-gateway:3000`, preserving the request path.
+Routes attach only from the Gateway's namespace. Backend gRPC, metrics,
+databases, tools, and existing lab routes retain their existing access paths.
+
+The existing `BETTER_AUTH_URL`, `EMAIL_VERIFICATION_URL`, and frontend-origin
+settings remain valid. Verify signup, the Mailpit verification link, sign-in,
+and authenticated session access through this address. Check that invalid API
+requests preserve the public error format, and `/metrics` and paths outside
+`/api` do not reach the application. Existing `whoami.localhost` and
+`color-app.localhost` routes should continue working through Traefik.
+
+Direct application port-forwarding remains an alternative. To remove only the
+optional routing resources:
+
+```sh
+kubectl -n <application-namespace> delete -k infra/k8s/gateway
+```
+
+TLS, DNS, tunnel access, and controller installation are outside this setup.
 
 ## NATS JetStream storage and checks
 
