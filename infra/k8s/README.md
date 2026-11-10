@@ -9,9 +9,27 @@ backends are supplied separately.
 
 ## Build and load images
 
-Start your cluster and select its kubectl context. From the repository root,
-with Docker, pnpm, and workspace dependencies installed, generate contracts and
-build the existing images:
+For minikube, start your cluster and select its kubectl context, then run:
+
+```sh
+make k8s-prepare-images
+```
+
+This requires Docker, minikube, kubectl, make, pnpm, and installed workspace
+dependencies. It checks Docker availability and minikube status, generates
+contracts with `make generate-proto`, builds all six application images, then
+loads them from the Docker daemon into minikube with overwrite enabled. A failure
+stops the command immediately; image loading starts only after all builds succeed.
+
+The default `MINIKUBE_PROFILE` is `minikube`. Override it with
+`make k8s-prepare-images MINIKUBE_PROFILE=another-profile`; the current kubectl
+context must match the profile name. Direct invocation with
+`bash /path/to/repository/scripts/k8s/prepare-images.sh` works from any directory
+and accepts `MINIKUBE_PROFILE` from the environment. The local build architecture
+must match the minikube nodes.
+
+For manual builds, including kind and Docker Desktop Kubernetes, run these
+commands from the repository root:
 
 ```sh
 make generate-proto
@@ -168,18 +186,51 @@ the manifests again. It does not create namespaces, generate or apply Secrets,
 deploy applications, or configure Gateway routing. The default StorageClass must
 be able to provision the PVCs, and the cluster must be able to pull the images.
 
-### 5. Deploy applications
+### 5. Prepare application images
+
+Build and load the six application images as described under
+[Build and load images](#build-and-load-images):
+
+```sh
+make k8s-prepare-images
+```
+
+Skip this step if the current images have already been prepared successfully.
+
+### 6. Deploy applications
 
 After dependency deployment succeeds, deploy applications into the same namespace:
 
 ```sh
-kubectl -n polyglot-ticketing apply -f infra/k8s/tickets
-kubectl -n polyglot-ticketing apply -f infra/k8s/identity
-kubectl -n polyglot-ticketing apply -f infra/k8s/orders
-kubectl -n polyglot-ticketing apply -f infra/k8s/payments
-kubectl -n polyglot-ticketing apply -f infra/k8s/expiration
-kubectl -n polyglot-ticketing apply -f infra/k8s/api-gateway
+make k8s-deploy-apps
+```
 
+This uses `K8S_NAMESPACE=polyglot-ticketing` and `MINIKUBE_PROFILE=minikube` by
+default, and requires the current kubectl context to match the profile. Override
+them with `make k8s-deploy-apps K8S_NAMESPACE=another-namespace MINIKUBE_PROFILE=another-profile`.
+For direct invocation from any directory, run
+`bash /path/to/repository/scripts/k8s/deploy-apps.sh` with those variables in the
+environment.
+
+Before applying applications, it checks the namespace and all five application
+Secrets, displaying only names, and waits for all seven dependency Deployments.
+It then applies all six application manifest directories nonrecursively and
+waits for all six application Deployments. Every rollout wait has a 600-second
+timeout. The command assumes image preparation succeeded, stops on the first
+failure, and leaves already-applied resources in place for a subsequent rerun.
+It preserves the existing migration init containers, `:dev` tags, pull policies,
+and ConfigMaps. It does not configure Gateway routing.
+
+Reapplying unchanged manifests does not restart running applications after a
+rebuild. After rebuilding and loading updated `:dev` images, use the manual
+rollout-restart workflow under [Verify and operate](#verify-and-operate).
+
+For kind or Docker Desktop Kubernetes, apply and wait manually instead:
+
+```sh
+for service in tickets identity orders payments expiration api-gateway; do
+  kubectl -n polyglot-ticketing apply -f "infra/k8s/$service"
+done
 for service in tickets identity orders payments expiration api-gateway; do
   kubectl -n polyglot-ticketing rollout status "deployment/$service" --timeout=600s
 done
@@ -196,6 +247,10 @@ containers before their application starts. Up-to-date schemas succeed;
 migration failures block startup and are retried. Identity's migration receives
 the same auth, SMTP, and database configuration as its runtime. The gateway and
 Expiration have no migrations.
+
+After running the minikube commands, confirm all six application Deployments are
+ready and the four `migrate` init containers completed successfully before
+continuing to Gateway routing.
 
 ## PostgreSQL storage and checks
 

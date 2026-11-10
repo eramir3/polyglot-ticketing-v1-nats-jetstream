@@ -1,7 +1,10 @@
-.PHONY: k8s-prepare-secrets k8s-list-secrets k8s-deploy-dependencies
+.PHONY: k8s-prepare-secrets k8s-list-secrets k8s-deploy-dependencies k8s-prepare-images k8s-deploy-apps
 
 K8S_NAMESPACE ?= polyglot-ticketing
 export K8S_NAMESPACE
+
+MINIKUBE_PROFILE ?= minikube
+export MINIKUBE_PROFILE
 
 export K8S_SECRETS_DIR
 k8s-prepare-secrets: ## Generate local Kubernetes Secrets without overwriting existing files.
@@ -12,3 +15,9 @@ k8s-list-secrets: ## List Kubernetes Secrets in the application namespace (defau
 
 k8s-deploy-dependencies: ## Deploy Redis, Mailpit, NATS, and four PostgreSQL databases and wait for readiness.
 	@bash scripts/k8s/deploy-dependencies.sh
+
+k8s-prepare-images: ## Generate contracts, build six application images, and load them into minikube.
+	@bash scripts/k8s/prepare-images.sh
+
+k8s-deploy-apps: ## Deploy the six applications to minikube and wait for readiness.
+	@bash scripts/k8s/deploy-apps.sh
