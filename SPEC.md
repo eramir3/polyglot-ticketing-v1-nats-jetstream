@@ -259,10 +259,14 @@ phase. Local Kubernetes manifests in `infra/k8s` cover Tickets, Identity, Orders
 Payments, Expiration, and the API Gateway. Each runs one replica with an internal
 ClusterIP Service; Identity, Tickets, Orders, and Payments run migrations in init
 containers. The gateway exposes HTTP internally, backend APIs remain gRPC-only,
-and Expiration exposes only metrics. PostgreSQL, NATS JetStream, Redis, and SMTP
-are supplied externally. Access the gateway locally through port-forwarding.
-Concert Assistant, infrastructure manifests, and Kubernetes controllers remain
-deferred. See
+and Expiration exposes only metrics. Identity, Tickets, Orders, and Payments each
+have a separate `postgres:17-alpine` Deployment and internal database Service on
+port `5432`, with a `1Gi` ReadWriteOnce PVC using the default storage class.
+Database Deployments use one replica and Recreate updates; their owning service
+Secrets supply `POSTGRES_PASSWORD` and matching application `DATABASE_URL` values.
+NATS JetStream, Redis, and SMTP remain external. Access the gateway and databases
+locally through port-forwarding. Concert Assistant, remaining infrastructure
+manifests, and Kubernetes controllers remain deferred. See
 [`infra/k8s/README.md`](infra/k8s/README.md) for setup and limitations.
 
 ## Protobuf And Validation

@@ -214,7 +214,7 @@ queries, retention, and tracing details.
 
 ## Further documentation
 
-- [Local Kubernetes setup](infra/k8s/README.md): application manifests for Tickets, Identity, Orders, Payments, Expiration, and the API Gateway, with external infrastructure dependencies.
+- [Local Kubernetes setup](infra/k8s/README.md): application manifests for Tickets, Identity, Orders, Payments, Expiration, and the API Gateway, plus four PostgreSQL databases with persistent storage. NATS, Redis, and SMTP remain external.
 - [System specification](SPEC.md): service behavior, flows, contracts, and local ports.
 - [Public error contract](docs/error-contract.md): REST and gRPC error format.
 - [Observability catalog](docs/observability.md): intentional high-signal logs, metrics, and tracing.

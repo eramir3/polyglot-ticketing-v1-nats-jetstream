@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payments-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payments-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_DB
+              value: payments-db
+            - name: POSTGRES_USER
+              value: payments
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payments-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "payments", "-d", "payments-db"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "payments", "-d", "payments-db"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "payments", "-d", "payments-db"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: payments-db-data

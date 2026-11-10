@@ -1,10 +1,10 @@
 # Local Kubernetes
 
 These manifests deploy Tickets, Identity, Orders, Payments, Expiration, and the
-API Gateway to a local Kubernetes cluster. Each workload has one replica and an
-internal ClusterIP Service. Use the same namespace for all six services.
-PostgreSQL, NATS JetStream, Redis, SMTP, ingress, and observability backends are
-supplied separately.
+API Gateway, plus their four PostgreSQL databases, to a local Kubernetes cluster.
+Each workload has one replica and an internal ClusterIP Service. Use the same
+namespace for all workloads. NATS JetStream, Redis, SMTP, ingress, and
+observability backends are supplied separately.
 
 ## Build and load images
 
@@ -34,25 +34,31 @@ images when its image store is shared with Docker. All manifests use
 
 ## Configure dependencies
 
-Each service directory contains a `configmap.yaml` for nonsecret configuration.
-Secret templates live under `examples/`. Database users must be able to apply
-migrations to their own service's database.
+Each application service directory contains a `configmap.yaml` for nonsecret
+configuration. Secret templates live under `examples/`. The four database
+Deployments initialize the same database and user names as Compose and read
+`POSTGRES_PASSWORD` from their owning application's Secret. Applications and
+their migration init containers continue reading `DATABASE_URL` from that Secret.
 
 | Workload | External dependencies | Example host ports |
 | --- | --- | --- |
-| Tickets | Tickets PostgreSQL, NATS JetStream | `5433`, `4222` |
-| Identity | Identity PostgreSQL, SMTP | `5432`, `1025` |
-| Orders | Orders PostgreSQL, NATS JetStream | `5434`, `4222` |
-| Payments | Payments PostgreSQL, NATS JetStream | `5435`, `4222` |
+| Tickets | NATS JetStream | `4222` |
+| Identity | SMTP | `1025` |
+| Orders | NATS JetStream | `4222` |
+| Payments | NATS JetStream | `4222` |
 | Expiration | NATS JetStream, its own Redis data | `4222`, `6379` |
 | API Gateway | Backend Kubernetes Services | No external persistence |
 
 Examples use `host.docker.internal` for host dependencies on Docker Desktop.
 Replace it with an address reachable from your cluster as needed; minikube also
 provides `host.minikube.internal` for reaching its host. Verify connectivity for
-your driver. Pod-local `localhost` cannot reach host services. PostgreSQL example
-ports match Compose's published ports. Compose Mailpit exposes SMTP only inside
-its network; arrange cluster-reachable SMTP separately if using it.
+your driver. Pod-local `localhost` cannot reach host services. Compose Mailpit
+exposes SMTP only inside its network; arrange cluster-reachable SMTP separately
+if using it.
+
+PostgreSQL connections use the same-namespace Services `identity-db`, `tickets-db`,
+`orders-db`, and `payments-db`, all on port `5432`. These databases are separate
+from Compose databases; no existing data is imported.
 
 Configure `NATS_URL` in Tickets, Orders, Payments, and Expiration for a
 JetStream-enabled server. Set Identity's `SMTP_HOST`, `SMTP_PORT`, and
@@ -87,13 +93,28 @@ for service in tickets identity orders payments expiration; do
 done
 ```
 
-Edit the copies with reachable addresses, URL-encoded database passwords, and a
-random `BETTER_AUTH_SECRET` at least 32 characters long. Do not commit credentials.
-Apply the Secrets and each workload directory:
+Set each database Secret's `POSTGRES_PASSWORD` to the raw password and put the
+same password, URL-encoded, into `DATABASE_URL`. Keep the database Service names
+and port `5432` from the examples. Configure Expiration's reachable Redis address
+and a random `BETTER_AUTH_SECRET` at least 32 characters long. If reusing a Secret
+copy from the earlier external-database setup, add `POSTGRES_PASSWORD` and update
+its `DATABASE_URL` before applying it. Do not commit credentials.
+
+Apply Secrets first, then the database manifests, and wait for all databases
+before applying application manifests:
 
 ```sh
 for service in tickets identity orders payments expiration; do
   kubectl apply -f "/tmp/$service-secret.yaml"
+done
+
+kubectl apply -f infra/k8s/identity-db
+kubectl apply -f infra/k8s/tickets-db
+kubectl apply -f infra/k8s/orders-db
+kubectl apply -f infra/k8s/payments-db
+
+for database in identity-db tickets-db orders-db payments-db; do
+  kubectl rollout status "deployment/$database" --timeout=600s
 done
 
 kubectl apply -f infra/k8s/tickets
@@ -118,6 +139,59 @@ containers before their application starts. Up-to-date schemas succeed;
 migration failures block startup and are retried. Identity's migration receives
 the same auth, SMTP, and database configuration as its runtime. The gateway and
 Expiration have no migrations.
+
+## PostgreSQL storage and checks
+
+Each database directory contains a Deployment, Service, and a separate `1Gi`
+`ReadWriteOnce` PVC named `<database>-data`. PVCs use the cluster's default storage
+class; check it with `kubectl get storageclass`. Minikube's default provisioner
+can satisfy these claims. If a claim remains Pending, inspect it with
+`kubectl describe pvc tickets-db-data` before troubleshooting application startup.
+
+The volume mounts at `/var/lib/postgresql/data`, with `PGDATA` set to its `pgdata`
+subdirectory. Data survives pod replacement and Deployment recreation when the
+PVC is retained. Deleting the PVC can delete its data, depending on the storage
+class's reclaim policy; deleting the entire database directory's resources also
+deletes its PVC. Keep databases at one replica with Recreate updates.
+
+PostgreSQL initializes the configured database, user, and password only on an
+empty volume. Changing `POSTGRES_PASSWORD` in the Secret does not change the
+password of an initialized database. Update that database user's password in
+PostgreSQL and keep the Secret's password and connection URL in sync.
+
+Inspect database readiness and storage:
+
+```sh
+kubectl get deployments,pods,services,pvc
+kubectl logs deployment/tickets-db -c postgres
+kubectl get endpointslices -l kubernetes.io/service-name=tickets-db
+```
+
+After deploying, this optional check authenticates through the Tickets database
+Service and verifies a marker row survives pod replacement. Run it on your local
+test database; the marker table is removed at the end:
+
+```sh
+tickets_sql() {
+  kubectl exec deployment/tickets-db -- sh -c \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h tickets-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "$1"' sh "$1"
+}
+
+tickets_sql 'SELECT current_database(), current_user;'
+tickets_sql 'CREATE TABLE k8s_persistence_check (id integer PRIMARY KEY); INSERT INTO k8s_persistence_check VALUES (1);'
+kubectl rollout restart deployment/tickets-db
+kubectl rollout status deployment/tickets-db --timeout=600s
+tickets_sql 'SELECT id FROM k8s_persistence_check;'
+tickets_sql 'DROP TABLE k8s_persistence_check;'
+```
+
+The query after restart should return `1`. Repeat with the other database
+Deployment, Service, and owning user as needed. Database probes use `pg_isready`
+over TCP and allow five minutes for initialization; they do not verify passwords.
+
+For host database tools, run `kubectl port-forward service/tickets-db 5433:5432`
+and connect to `localhost:5433` with the configured credentials. Choose another
+local port if it is already in use.
 
 ## Verify and operate
 
@@ -151,15 +225,17 @@ curl http://localhost:3000/api/tickets
 Verify authentication through gateway signup, the externally delivered
 verification email, and sign-in. With a verified session, order creation and
 payment exercise Orders and Payments; Expiration logs and metrics show expiry
-job scheduling. These workflow checks require all external dependencies.
+job scheduling. Check each application's `migrate` init-container logs to verify
+its schema migration completed. These workflow checks also require the remaining
+external dependencies.
 
 To inspect another service's metrics, stop the gateway forward and run, for
 example, `kubectl port-forward service/expiration 9090:9090`, then fetch
 `/metrics`. Backend gRPC ports do not serve HTTP. No ingress, NodePort, or
 LoadBalancer is created here.
 
-TCP probes verify listener availability, not continued database, broker, Redis,
-or SMTP health. The five newer workloads allow five minutes for startup before
+Application TCP probes verify listener availability, not continued database,
+broker, Redis, or SMTP health. The five newer application workloads allow five minutes for startup before
 readiness and liveness checks begin. Expiration probes its metrics listener; a
 ready pod does not guarantee event processing. Use logs and metrics to verify
 that behavior. Existing Tickets probes remain unchanged.
@@ -177,5 +253,6 @@ After editing a ConfigMap or Secret, apply it and restart its Deployment to load
 new values. Migrations rerun when a pod is recreated; restarting only the
 application container does not rerun a completed init container.
 
-Concert Assistant, infrastructure manifests, ingress, and observability backends
-remain deferred. Existing Compose workflows remain available independently.
+Concert Assistant and the remaining infrastructure manifests (including NATS,
+Redis, SMTP, ingress, and observability backends) remain deferred. Existing
+Compose workflows remain available independently.

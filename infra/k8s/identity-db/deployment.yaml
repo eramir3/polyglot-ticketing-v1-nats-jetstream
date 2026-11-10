@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_DB
+              value: identity-db
+            - name: POSTGRES_USER
+              value: identity
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: identity-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "identity", "-d", "identity-db"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "identity", "-d", "identity-db"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "identity", "-d", "identity-db"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: identity-db-data
