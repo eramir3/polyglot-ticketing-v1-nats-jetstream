@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redisinsight
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: &id001
+      app.kubernetes.io/name: redisinsight
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: redisinsight
+        image: redis/redisinsight:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: p5540
+          containerPort: 5540
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        startupProbe:
+          tcpSocket:
+            port: p5540
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: p5540
+          periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: p5540
+          periodSeconds: 10
+          timeoutSeconds: 5
+      securityContext:
+        fsGroup: 1000
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: redisinsight-data

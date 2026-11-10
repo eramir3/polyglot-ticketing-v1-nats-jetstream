@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- grafana-configmap.yaml
+- grafana-pvc.yaml
+- grafana-deployment.yaml
+- grafana-service.yaml
+- prometheus-configmap.yaml
+- prometheus-pvc.yaml
+- prometheus-deployment.yaml
+- prometheus-service.yaml
+- loki-configmap.yaml
+- loki-pvc.yaml
+- loki-deployment.yaml
+- loki-service.yaml
+- tempo-configmap.yaml
+- tempo-pvc.yaml
+- tempo-deployment.yaml
+- tempo-service.yaml
+- alloy-configmap.yaml
+- alloy-deployment.yaml
+- alloy-service.yaml
+- alloy-rbac.yaml

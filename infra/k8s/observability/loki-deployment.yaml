@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: &id001
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:3.6.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: p3100
+          containerPort: 3100
+        args:
+        - -config.file=/etc/loki/config.yml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/loki
+          readOnly: true
+        - name: data
+          mountPath: /loki
+        startupProbe:
+          tcpSocket:
+            port: p3100
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: p3100
+          periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: p3100
+          periodSeconds: 10
+          timeoutSeconds: 5
+      securityContext:
+        fsGroup: 10001
+      volumes:
+      - name: config
+        configMap:
+          name: loki-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: loki-data

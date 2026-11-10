@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: &id001
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: tempo
+        image: grafana/tempo:3.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: p3200
+          containerPort: 3200
+        - name: p4317
+          containerPort: 4317
+        args:
+        - -config.file=/etc/tempo/config.yml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+        - name: data
+          mountPath: /var/tempo
+        startupProbe:
+          tcpSocket:
+            port: p3200
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: p3200
+          periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: p3200
+          periodSeconds: 10
+          timeoutSeconds: 5
+      securityContext:
+        fsGroup: 10001
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: tempo-data

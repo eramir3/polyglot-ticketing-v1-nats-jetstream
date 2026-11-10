@@ -3,7 +3,7 @@
 These manifests deploy Tickets, Identity, Orders, Payments, Expiration, and the
 API Gateway, plus NATS JetStream and their four PostgreSQL databases, to a local Kubernetes cluster.
 Each workload has one replica and an internal ClusterIP Service. Use the same
-namespace for all workloads. Redis, SMTP, ingress, and
+namespace for all workloads. Redis and Mailpit run in-cluster. Ingress and
 observability backends are supplied separately.
 
 ## Build and load images
@@ -40,21 +40,9 @@ Deployments initialize the same database and user names as Compose and read
 `POSTGRES_PASSWORD` from their owning application's Secret. Applications and
 their migration init containers continue reading `DATABASE_URL` from that Secret.
 
-| Workload | External dependencies | Example host ports |
-| --- | --- | --- |
-| Tickets | None | — |
-| Identity | SMTP | `1025` |
-| Orders | None | — |
-| Payments | None | — |
-| Expiration | Its own Redis data | `6379` |
-| API Gateway | Backend Kubernetes Services | No external persistence |
-
-Examples use `host.docker.internal` for host dependencies on Docker Desktop.
-Replace it with an address reachable from your cluster as needed; minikube also
-provides `host.minikube.internal` for reaching its host. Verify connectivity for
-your driver. Pod-local `localhost` cannot reach host services. Compose Mailpit
-exposes SMTP only inside its network; arrange cluster-reachable SMTP separately
-if using it.
+Redis is available at `redis:6379` and Mailpit SMTP at `mailpit:1025`.
+Neither requires authentication in this local setup. Mailpit captures email;
+it does not deliver it to external inboxes.
 
 PostgreSQL connections use the same-namespace Services `identity-db`, `tickets-db`,
 `orders-db`, and `payments-db`, all on port `5432`. These databases are separate
@@ -95,7 +83,7 @@ done
 
 Set each database Secret's `POSTGRES_PASSWORD` to the raw password and put the
 same password, URL-encoded, into `DATABASE_URL`. Keep the database Service names
-and port `5432` from the examples. Configure Expiration's reachable Redis address
+and port `5432` from the examples. Set Expiration's `REDIS_URL` to `redis://redis:6379`
 and a random `BETTER_AUTH_SECRET` at least 32 characters long. If reusing a Secret
 copy from the earlier external-database setup, add `POSTGRES_PASSWORD` and update
 its `DATABASE_URL` before applying it. Do not commit credentials.
@@ -107,6 +95,11 @@ before applying application manifests:
 for service in tickets identity orders payments expiration; do
   kubectl apply -f "/tmp/$service-secret.yaml"
 done
+
+kubectl apply -f infra/k8s/redis
+kubectl apply -f infra/k8s/mailpit
+kubectl rollout status deployment/redis --timeout=600s
+kubectl rollout status deployment/mailpit --timeout=600s
 
 kubectl apply -f infra/k8s/nats
 kubectl rollout status deployment/nats --timeout=600s
@@ -256,7 +249,7 @@ After editing a ConfigMap or Secret, apply it and restart its Deployment to load
 new values. Migrations rerun when a pod is recreated; restarting only the
 application container does not rerun a completed init container.
 
-Concert Assistant and the remaining infrastructure manifests (including Redis, SMTP, ingress, and observability backends) remain deferred. Existing
+Concert Assistant and the remaining infrastructure manifests (including ingress and observability backends) remain deferred. Existing
 Compose workflows remain available independently.
 
 ## NATS JetStream storage and checks
@@ -301,3 +294,70 @@ nats --server nats://localhost:4222 stream rm K8S_PERSISTENCE_CHECK --force
 After applying the updated application ConfigMaps to an existing installation,
 restart Tickets, Orders, Payments, and Expiration and check their logs for NATS
 connections. No Compose broker data is imported.
+
+## Redis and Mailpit
+
+Redis uses one replica, Recreate updates, AOF persistence, and a `1Gi`
+ReadWriteOnce PVC mounted at `/data`, using the default StorageClass. Retain
+`redis-data` to preserve delayed jobs across pod replacement. Deleting the PVC
+may delete scheduled jobs. Mailpit messages are ephemeral and may disappear
+when its container restarts.
+
+For existing installations, update `expiration-secret` with
+`REDIS_URL=redis://redis:6379`, apply Identity's updated ConfigMap, then restart
+both application Deployments to load their configuration. Keep Compose and
+Kubernetes dependency instances separate.
+
+Open the inbox at http://localhost:8025 after running:
+
+```sh
+kubectl port-forward service/mailpit 8025:8025
+```
+
+Check Redis with `kubectl exec deployment/redis -- redis-cli ping` (expect
+`PONG`). To check persistence, set a temporary key, delete the Redis pod, wait
+for its replacement to become ready, read the key, then delete the key.
+Verify signup through the gateway and follow the verification link captured
+in Mailpit. Reserve a ticket and verify that its unpaid order is canceled
+after the existing 15-minute expiration delay; inspect Expiration and Orders
+logs as well as Redis job processing.
+
+## Optional observability and development tools
+
+Build `nui:dev` with `docker build -f infra/nui/Dockerfile -t nui:dev .`
+and load it into your cluster just like the application images.
+After the core dependencies and Secrets are installed, run:
+
+```sh
+kubectl apply -k infra/k8s/observability
+kubectl apply -k infra/k8s/development-tools
+kubectl apply -k infra/k8s/overlays/observability
+```
+
+The last command applies the six application workloads with trace export to
+`alloy:4318`; omit it to keep the base application configuration. Wait for
+all optional Deployments to roll out. Use the same namespace for every command.
+Alloy discovers pods only in its own namespace through its ServiceAccount and
+Role, collecting application runtime logs without host mounts or Docker access.
+Logs retain `service` and `environment=local` labels plus pod/container labels.
+Prometheus scrapes all six application Services; Alloy sends traces to Tempo.
+
+Port-forward Services with `kubectl port-forward service/<name> <local>:<remote>`:
+Grafana `3002:3000`, Prometheus `9090:9090`, NUI `31311:31311`, and Redis Insight
+`5540:5540`. Grafana retains its standard login (initially admin/admin).
+Its Loki, Prometheus, Tempo datasources and Ticketing k6 dashboard are provisioned.
+The dashboard needs separately supplied k6 data; no load generator is installed.
+In NUI connect to `nats://nats:4222`; in Redis Insight connect to `redis:6379`.
+
+Each stateful tool has a separate 1Gi PVC using the default StorageClass; retain
+these claims to preserve data across pod replacement. Telemetry retention is
+seven days and may need larger claims for heavy local use. Alloy is stateless.
+After ConfigMap changes restart the affected tool Deployment. To remove trace
+export, reapply each application's base with `kubectl apply -k infra/k8s/<service>`
+and explicitly remove the overlay-added environment variable with
+`kubectl set env deployment/<service> OTEL_EXPORTER_OTLP_ENDPOINT-` before stopping
+Alloy. Deleting an optional group also deletes its PVCs and may destroy its data.
+
+Verify all six Prometheus targets are UP, query application logs in Grafana's
+Loki Explore, and generate gateway requests to verify traces in Tempo. Check
+NUI and Redis Insight connections and retained tool data after pod replacement.

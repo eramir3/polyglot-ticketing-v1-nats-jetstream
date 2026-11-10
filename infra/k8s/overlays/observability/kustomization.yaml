@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../api-gateway
+- ../../identity
+- ../../tickets
+- ../../orders
+- ../../payments
+- ../../expiration
+patches:
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api-gateway\n\
+    spec:\n  template:\n    spec:\n      containers:\n      - name: api-gateway\n\
+    \        env:\n        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: identity\nspec:\n\
+    \  template:\n    spec:\n      containers:\n      - name: identity\n        env:\n\
+    \        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: tickets\nspec:\n\
+    \  template:\n    spec:\n      containers:\n      - name: tickets\n        env:\n\
+    \        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders\nspec:\n\
+    \  template:\n    spec:\n      containers:\n      - name: orders\n        env:\n\
+    \        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments\nspec:\n\
+    \  template:\n    spec:\n      containers:\n      - name: payments\n        env:\n\
+    \        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"
+- patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: expiration\nspec:\n\
+    \  template:\n    spec:\n      containers:\n      - name: expiration\n       \
+    \ env:\n        - name: OTEL_EXPORTER_OTLP_ENDPOINT\n          value: alloy:4318\n"

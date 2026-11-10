@@ -49,7 +49,7 @@ Implemented foundations:
 Local Kubernetes manifests in `infra/k8s` cover the API gateway, identity, tickets,
 orders, payments, and expiration, plus separate PostgreSQL Deployments, internal
 Services, and PVCs for identity, tickets, orders, and payments. NATS JetStream runs as a single persistent Deployment with an internal Service.
-Redis, SMTP, and observability infrastructure remain external. See `infra/k8s/README.md` for
+Redis and Mailpit run in-cluster; observability infrastructure remains external. See `infra/k8s/README.md` for
 setup.
 
 Planned but not implemented: GraphQL, Kubernetes manifests for the remaining
@@ -166,3 +166,7 @@ expiration jobs.
   practical test harness.
 - Update `SPEC.md` and contract documentation when architecture, public APIs,
   protobuf contracts, validation, or error behavior changes.
+
+Optional local Kubernetes observability (Grafana, Prometheus, Loki, Tempo, Alloy)
+and development tools (NUI, Redis Insight) are available under `infra/k8s`.
+An optional application overlay enables tracing; see `infra/k8s/README.md`.

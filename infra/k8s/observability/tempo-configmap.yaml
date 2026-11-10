@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+data:
+  config.yml: "server:\n  http_listen_port: 3200\n\ndistributor:\n  receivers:\n \
+    \   otlp:\n      protocols:\n        grpc:\n          endpoint: 0.0.0.0:4317\n\
+    \nstorage:\n  trace:\n    backend: local\n    wal:\n      path: /var/tempo/wal\n\
+    \    local:\n      path: /var/tempo/blocks\n\nbackend_scheduler:\n  provider:\n\
+    \    compaction:\n      compaction:\n        block_retention: 168h\n\nusage_report:\n\
+    \  reporting_enabled: false\n"

@@ -267,7 +267,7 @@ Secrets supply `POSTGRES_PASSWORD` and matching application `DATABASE_URL` value
 NATS JetStream runs in a single-replica `nats:2.11-alpine` Deployment with Recreate
 updates, a `1Gi` ReadWriteOnce PVC at `/data`, and an internal `nats` Service
 on client port `4222` and monitoring port `8222`. Tickets, Orders, Payments, and
-Expiration connect to `nats://nats:4222`. Redis and SMTP remain external. Access the gateway and databases
+Expiration connect to `nats://nats:4222`. Redis runs in-cluster using redis:7.4-alpine with AOF persistence and a 1Gi PVC. Mailpit runs in-cluster using axllent/mailpit:v1.28 with ephemeral email storage. Expiration connects to redis://redis:6379; Identity sends SMTP to mailpit:1025. Access the gateway and databases
 locally through port-forwarding. Concert Assistant, remaining infrastructure
 manifests, and Kubernetes controllers remain deferred. See
 [`infra/k8s/README.md`](infra/k8s/README.md) for setup and limitations.
@@ -714,3 +714,7 @@ including ready-to-paste LogQL and PromQL queries, is in
 authentication failures, business lifecycle metrics, tracing and Tempo,
 alerts, broad request or domain-success logging, and production observability
 configuration are not part of this increment.
+
+Optional local Kubernetes observability (Grafana, Prometheus, Loki, Tempo, Alloy)
+and development tools (NUI, Redis Insight) are available under `infra/k8s`.
+An optional application overlay enables tracing; see `infra/k8s/README.md`.

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nui
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: &id001
+      app.kubernetes.io/name: nui
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: nui
+        image: nui:dev
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: p31311
+          containerPort: 31311
+        volumeMounts:
+        - name: data
+          mountPath: /db
+        startupProbe:
+          tcpSocket:
+            port: p31311
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: p31311
+          periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: p31311
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: nui-data

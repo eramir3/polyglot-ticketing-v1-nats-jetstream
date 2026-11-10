@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: &id001
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v3.6.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: p9090
+          containerPort: 9090
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --storage.tsdb.retention.time=7d
+        - --web.enable-remote-write-receiver
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: data
+          mountPath: /prometheus
+        startupProbe:
+          tcpSocket:
+            port: p9090
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: p9090
+          periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: p9090
+          periodSeconds: 10
+          timeoutSeconds: 5
+      securityContext:
+        fsGroup: 65534
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: prometheus-data

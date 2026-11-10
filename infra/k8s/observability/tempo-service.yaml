@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+  - name: p3200
+    port: 3200
+    targetPort: p3200
+  - name: p4317
+    port: 4317
+    targetPort: p4317

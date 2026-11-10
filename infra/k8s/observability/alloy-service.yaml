@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alloy
+  ports:
+  - name: p12345
+    port: 12345
+    targetPort: p12345
+  - name: p4318
+    port: 4318
+    targetPort: p4318

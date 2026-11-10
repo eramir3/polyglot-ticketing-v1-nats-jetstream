@@ -214,7 +214,7 @@ queries, retention, and tracing details.
 
 ## Further documentation
 
-- [Local Kubernetes setup](infra/k8s/README.md): application manifests for Tickets, Identity, Orders, Payments, Expiration, and the API Gateway, plus four PostgreSQL databases with persistent storage. NATS, Redis, and SMTP remain external.
+- [Local Kubernetes setup](infra/k8s/README.md): application manifests for Tickets, Identity, Orders, Payments, Expiration, and the API Gateway, plus four PostgreSQL databases with persistent storage. NATS JetStream, persistent Redis, and Mailpit also run in-cluster.
 - [System specification](SPEC.md): service behavior, flows, contracts, and local ports.
 - [Public error contract](docs/error-contract.md): REST and gRPC error format.
 - [Observability catalog](docs/observability.md): intentional high-signal logs, metrics, and tracing.
@@ -225,3 +225,7 @@ The following are intentionally deferred and low priority: replacing the
 simulated payment processor with a real provider, publishing an
 `OrderCompleted` event or exposing payment status publicly, and removing a
 queued expiration job after an order cancellation.
+
+Optional local Kubernetes observability (Grafana, Prometheus, Loki, Tempo, Alloy)
+and development tools (NUI, Redis Insight) are available under `infra/k8s`.
+An optional application overlay enables tracing; see `infra/k8s/README.md`.
