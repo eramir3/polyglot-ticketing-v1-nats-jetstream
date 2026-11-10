@@ -229,15 +229,16 @@ For kind or Docker Desktop Kubernetes, apply and wait manually instead:
 
 ```sh
 for service in tickets identity orders payments expiration api-gateway; do
-  kubectl -n polyglot-ticketing apply -f "infra/k8s/$service"
+  kubectl -n polyglot-ticketing apply -k "infra/k8s/$service"
 done
 for service in tickets identity orders payments expiration api-gateway; do
   kubectl -n polyglot-ticketing rollout status "deployment/$service" --timeout=600s
 done
 ```
 
-Directory application is nonrecursive and excludes example Secrets. Avoid `-R`,
-which would apply placeholders. Manifests are namespace-neutral; replace
+Kustomize renders the application resources listed in each `kustomization.yaml`,
+excluding example Secrets. Dependency directory application is nonrecursive.
+Avoid `-R`, which would apply placeholders. Manifests are namespace-neutral; replace
 `polyglot-ticketing` consistently if choosing another namespace. Subsequent
 namespace-scoped kubectl examples omit the namespace for brevity; add
 `-n polyglot-ticketing` (or your chosen namespace) when running them.
@@ -251,6 +252,29 @@ Expiration have no migrations.
 After running the minikube commands, confirm all six application Deployments are
 ready and the four `migrate` init containers completed successfully before
 continuing to Gateway routing.
+
+### 7. Deploy Gateway API routing
+
+```sh
+make k8s-deploy-gateway
+```
+
+This reuses the existing Traefik controller. See
+[Optional Gateway API access](#optional-gateway-api-access) for prerequisites,
+validation, and namespace/profile overrides.
+
+### 8. Forward and verify local access
+
+Stop any previous forward using local port 3000, then run:
+
+```sh
+make k8s-port-forward-gateway
+```
+
+Leave this command running in the foreground; Ctrl+C stops forwarding. In another
+terminal, verify `curl -i http://localhost:3000/api/tickets` returns HTTP 200 with
+the ticket-list JSON. The fourth checklist item is complete once reconciliation
+succeeds and this request works through Traefik.
 
 ## PostgreSQL storage and checks
 
@@ -384,6 +408,25 @@ kubectl -n traefik get deployment traefik -o yaml
 kubectl -n traefik get service traefik
 ```
 
+After deploying the applications, run `make k8s-deploy-gateway`. It uses the
+current kubectl context, which must match `MINIKUBE_PROFILE` (default `minikube`),
+and deploys into `K8S_NAMESPACE` (default `polyglot-ticketing`). Override these with
+`make k8s-deploy-gateway K8S_NAMESPACE=another-namespace MINIKUBE_PROFILE=another-profile`.
+Direct invocation via `bash /path/to/repository/scripts/k8s/deploy-gateway.sh`
+works from any directory and accepts both variables from the environment.
+
+The command checks the namespace, Gateway API CRDs, accepted `traefik`
+GatewayClass, and the Traefik and application API gateway Services. It waits for
+the Traefik and API gateway Deployments to finish rolling out (600 seconds each),
+validates with a server-side dry run, then applies the existing Kustomization
+using `kubectl apply -k`. It polls for up to 600 seconds for Gateway `Accepted`
+and `Programmed`, plus HTTPRoute `Accepted` and `ResolvedRefs` for the intended
+`ticketing-gateway` parent, `http` listener, and Traefik controller. All conditions
+must be true and reflect the current resource generation. Errors stop deployment;
+reconciliation timeouts display the resources for diagnosis. Applied resources
+are retained so the command can be rerun after correcting a problem.
+
+For manual deployment and inspection, use the following commands.
 Deploy the application workloads first. Replace `<application-namespace>` with
 their namespace throughout these commands; the routing resources must share the API gateway Service's namespace:
 
@@ -399,8 +442,15 @@ conditions `Accepted=True` and `ResolvedRefs=True`. Stop any existing forward
 using local port 3000, then run:
 
 ```sh
-kubectl -n traefik port-forward service/traefik 3000:80
+make k8s-port-forward-gateway
 ```
+
+This checks the context/profile match and runs
+`kubectl -n traefik port-forward service/traefik 3000:80` in the foreground until
+Ctrl+C. Use `MINIKUBE_PROFILE=another-profile` for another profile. Direct invocation
+via `bash /path/to/repository/scripts/k8s/port-forward-gateway.sh` also accepts that
+environment variable. Port conflicts and connection errors are passed through;
+the script does not stop other processes or start a background forward.
 
 This forwards to Traefik's proxy; the Gateway resource itself does not bind a
 localhost port. A pending LoadBalancer external address does not prevent this
@@ -414,7 +464,20 @@ settings remain valid. Verify signup, the Mailpit verification link, sign-in,
 and authenticated session access through this address. Check that invalid API
 requests preserve the public error format, and `/metrics` and paths outside
 `/api` do not reach the application. Existing `whoami.localhost` and
-`color-app.localhost` routes should continue working through Traefik.
+`color-app.localhost` routes should continue working through Traefik. With the
+forward running, check these from another terminal:
+
+```sh
+curl -i http://localhost:3000/api/tickets
+curl -i http://localhost:3000/metrics
+curl -i http://localhost:3000/
+curl -i -H 'Host: whoami.localhost' http://localhost:3000/
+curl -i -H 'Host: color-app.localhost' http://localhost:3000/
+```
+
+The ticket-list request should return HTTP 200 and JSON (possibly an empty array).
+The metrics and root requests should return HTTP 404, and the two lab hostnames
+should still return their existing responses.
 
 Direct application port-forwarding remains an alternative. To remove only the
 optional routing resources:

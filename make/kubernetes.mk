@@ -1,4 +1,4 @@
-.PHONY: k8s-prepare-secrets k8s-list-secrets k8s-deploy-dependencies k8s-prepare-images k8s-deploy-apps
+.PHONY: k8s-prepare-secrets k8s-list-secrets k8s-deploy-dependencies k8s-prepare-images k8s-deploy-apps k8s-deploy-gateway k8s-port-forward-gateway
 
 K8S_NAMESPACE ?= polyglot-ticketing
 export K8S_NAMESPACE
@@ -21,3 +21,9 @@ k8s-prepare-images: ## Generate contracts, build six application images, and loa
 
 k8s-deploy-apps: ## Deploy the six applications to minikube and wait for readiness.
 	@bash scripts/k8s/deploy-apps.sh
+
+k8s-deploy-gateway: ## Deploy Gateway API routing and wait for controller reconciliation.
+	@bash scripts/k8s/deploy-gateway.sh
+
+k8s-port-forward-gateway: ## Forward localhost:3000 to Traefik in the foreground (Ctrl+C to stop).
+	@bash scripts/k8s/port-forward-gateway.sh
