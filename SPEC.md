@@ -720,3 +720,10 @@ configuration are not part of this increment.
 Optional local Kubernetes observability (Grafana, Prometheus, Loki, Tempo, Alloy)
 and development tools (NUI, Redis Insight) are available under `infra/k8s`.
 An optional application overlay enables tracing; see `infra/k8s/README.md`.
+
+## Local AWS emulation foundation
+
+An independent Floci 2.4.0 Compose project provides a persistent local AWS API
+on `127.0.0.1:4566`, managed by the `make floci-*` commands. Terraform/EKS
+provisioning remains planned. Application dependencies retain their existing
+implementations. See [Floci setup](infra/floci/README.md).

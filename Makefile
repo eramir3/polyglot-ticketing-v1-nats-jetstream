@@ -4,6 +4,7 @@ include make/development.mk
 include make/performance.mk
 include make/dlq.mk
 include make/docker.mk
+include make/floci.mk
 include make/kubernetes.mk
 
 .PHONY: help

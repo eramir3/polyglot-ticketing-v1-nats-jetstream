@@ -229,3 +229,9 @@ queued expiration job after an order cancellation.
 Optional local Kubernetes observability (Grafana, Prometheus, Loki, Tempo, Alloy)
 and development tools (NUI, Redis Insight) are available under `infra/k8s`.
 An optional application overlay enables tracing; see `infra/k8s/README.md`.
+
+## Local AWS emulation
+
+Run `make floci-up` to start the standalone Floci runtime for future Terraform/EKS
+work. See [Floci setup](infra/floci/README.md) for requirements and commands.
+Cluster provisioning and application deployment are not included yet.
